@@ -1,0 +1,27 @@
+# Binaries
+/cc-go.exe
+/cc-go
+*.exe
+*.exe~
+*.test
+*.out
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude Code
+.claude/
+
+# Web
+web/node_modules/
+cmd/cc-go/web-dist/
+
+# Config (user-specific)
+.cc-go/
