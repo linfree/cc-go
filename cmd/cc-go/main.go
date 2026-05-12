@@ -1,61 +1,42 @@
 package main
 
 import (
+	_ "embed"
 	"fmt"
 	"log"
 	"os"
-	"os/exec"
 	"os/signal"
-	"runtime"
 	"syscall"
 	"time"
 
-	"github.com/spf13/cobra"
 	"github.com/linfree/cc-go/internal/bridge"
 	"github.com/linfree/cc-go/internal/claude"
 	"github.com/linfree/cc-go/internal/config"
 	"github.com/linfree/cc-go/internal/server"
 	"github.com/linfree/cc-go/internal/store"
+	"github.com/linfree/cc-go/internal/ui"
 	"github.com/linfree/cc-go/internal/wechat"
 )
 
+//go:embed cc-go.ico
+var appIcon []byte
+
 func main() {
-	root := &cobra.Command{
-		Use:   "cc-go",
-		Short: "WeChat bot for remote Claude Code management",
-	}
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
-	root.AddCommand(&cobra.Command{
-		Use:   "start",
-		Short: "Start the cc-go service",
-		RunE:  runStart,
-	})
-
-	if err := root.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
-}
-
-func runStart(cmd *cobra.Command, args []string) error {
 	cfg, err := config.Load()
 	if err != nil {
-		return fmt.Errorf("load config: %w", err)
+		log.Fatalf("load config: %v", err)
 	}
 
 	st, err := store.Open()
 	if err != nil {
-		return fmt.Errorf("open store: %w", err)
+		log.Fatalf("open store: %v", err)
 	}
 	defer st.Close()
 
-	// Reset zombie active sessions from previous runs
 	st.ResetActiveSessions()
 
-	needSetupWechat := false
-	needSetupClaude := false
-
-	// Check Claude CLI
 	if cfg.ClaudeCLIPath == "" && cfg.AutoFindClaude {
 		path, err := claude.FindClaudeCLI()
 		if err == nil {
@@ -63,11 +44,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 			cfg.Save()
 		}
 	}
-	if cfg.ClaudeCLIPath == "" {
-		needSetupClaude = true
-	}
 
-	// Create WeChat client always (needed for QR code login even without token)
 	wc := wechat.NewClient(cfg.Wechat.BaseURL, cfg.Wechat.BotToken, wechat.ParseLoginTime(cfg.Wechat.LoginTime))
 	if cfg.Wechat.LastFromID != "" {
 		wc.SetLastContact(wechat.ContactInfo{FromID: cfg.Wechat.LastFromID, ContextToken: cfg.Wechat.LastContextToken})
@@ -80,8 +57,6 @@ func runStart(cmd *cobra.Command, args []string) error {
 	if cfg.Wechat.BotToken != "" {
 		wc.Start()
 		wc.StartReconnectTimer(wechat.DefaultReconnectConfig)
-	} else {
-		needSetupWechat = true
 	}
 
 	br := bridge.New(cfg, st)
@@ -97,56 +72,46 @@ func runStart(cmd *cobra.Command, args []string) error {
 	srv := server.New(cfg, st, br, wc)
 
 	RegisterStaticRoutes(srv.Router())
+	RegisterStatusRoute(srv.Router(), cfg.WebPort)
 
-	// Graceful shutdown
+	// Graceful shutdown on SIGINT/SIGTERM
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-
 	go func() {
 		<-sigCh
 		log.Println("shutting down...")
-		done := make(chan struct{}, 1)
-		go func() {
-			br.StopSession()
-			if wc != nil {
-				wc.Stop()
-			}
-			done <- struct{}{}
-		}()
-		select {
-		case <-done:
-		case <-time.After(8 * time.Second):
+		br.StopSession()
+		if wc != nil {
+			wc.Stop()
 		}
 		os.Exit(0)
 	}()
 
-	// Open browser
-	if cfg.AutoOpenBrowser {
-		url := fmt.Sprintf("http://localhost:%d", cfg.WebPort)
-		if needSetupWechat {
-			url += "/#/wechat"
-		} else if needSetupClaude {
-			url += "/#/claude"
+	appUI := ui.New(cfg.WebPort, appIcon)
+
+	// onReady: start HTTP server after UI is set up
+	appUI.Run(func() {
+		addr := fmt.Sprintf(":%d", cfg.WebPort)
+		log.Printf("cc-go server starting on %s", addr)
+		go func() {
+			if err := srv.Router().Run(addr); err != nil {
+				log.Printf("server error: %v", err)
+			}
+		}()
+	})
+
+	// UI exited -- clean up
+	log.Println("shutting down...")
+	done := make(chan struct{}, 1)
+	go func() {
+		br.StopSession()
+		if wc != nil {
+			wc.Stop()
 		}
-		openBrowser(url)
-	}
-
-	addr := fmt.Sprintf(":%d", cfg.WebPort)
-	log.Printf("cc-go server starting on %s", addr)
-	return srv.Router().Run(addr)
-}
-
-func openBrowser(url string) {
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "windows":
-		cmd = exec.Command("cmd", "/c", "start", url)
-	case "darwin":
-		cmd = exec.Command("open", url)
-	default:
-		cmd = exec.Command("xdg-open", url)
-	}
-	if cmd != nil {
-		cmd.Start()
+		done <- struct{}{}
+	}()
+	select {
+	case <-done:
+	case <-time.After(8 * time.Second):
 	}
 }
