@@ -33,17 +33,17 @@ func (u *windowsUI) Run(onReady func()) {
 		systray.SetTitle("cc-go")
 		systray.SetTooltip("cc-go - Claude Code remote manager")
 
-		mOpen := systray.AddMenuItem("打开 Web 管理面板", "在浏览器中打开管理面板")
-		mShow := systray.AddMenuItem("显示窗口", "显示状态窗口")
+		mOpen := systray.AddMenuItem("在浏览器中打开", "在外部浏览器中打开管理面板")
+		mShow := systray.AddMenuItem("显示窗口", "显示管理面板窗口")
 		systray.AddSeparator()
 		mQuit := systray.AddMenuItem("退出", "停止服务并退出")
 
-		// Show status window on start
-		u.showStatusWindow()
-
+		// Start HTTP server first, then show window so page loads correctly
 		if onReady != nil {
 			onReady()
 		}
+
+		u.showWindow()
 
 		url := fmt.Sprintf("http://localhost:%d", u.port)
 
@@ -53,7 +53,7 @@ func (u *windowsUI) Run(onReady func()) {
 				case <-mOpen.ClickedCh:
 					openBrowser(url)
 				case <-mShow.ClickedCh:
-					u.showStatusWindow()
+					u.showWindow()
 				case <-mQuit.ClickedCh:
 					u.closeWebview()
 					systray.Quit()
@@ -70,11 +70,11 @@ func (u *windowsUI) Run(onReady func()) {
 	})
 }
 
-func (u *windowsUI) showStatusWindow() {
+func (u *windowsUI) showWindow() {
 	u.mu.Lock()
 	if u.webview != nil {
 		u.mu.Unlock()
-		return // already showing
+		return
 	}
 	u.mu.Unlock()
 
@@ -92,11 +92,9 @@ func (u *windowsUI) showStatusWindow() {
 		u.mu.Unlock()
 
 		w.SetTitle("cc-go")
-		w.SetSize(480, 320, webview2.HintFixed)
-		w.Navigate(fmt.Sprintf("http://localhost:%d/status", u.port))
+		w.SetSize(1024, 700, webview2.HintNone)
+		w.Navigate(fmt.Sprintf("http://localhost:%d", u.port))
 
-		// When the window is closed, just destroy — don't exit process.
-		// The systray keeps the process alive.
 		w.Run()
 	}()
 }

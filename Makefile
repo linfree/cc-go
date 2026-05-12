@@ -21,7 +21,7 @@ build-mac:
 
 build-win:
 	cd $(WEB_DIR) && npm run build
-	GOOS=windows GOARCH=amd64 go build -o $(APP_NAME).exe ./cmd/cc-go/
+	GOOS=windows GOARCH=amd64 go build -ldflags "-H windowsgui" -o $(APP_NAME).exe ./cmd/cc-go/
 
 run:
 	go run ./cmd/cc-go/

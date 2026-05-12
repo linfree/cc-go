@@ -72,7 +72,6 @@ func main() {
 	srv := server.New(cfg, st, br, wc)
 
 	RegisterStaticRoutes(srv.Router())
-	RegisterStatusRoute(srv.Router(), cfg.WebPort)
 
 	// Graceful shutdown on SIGINT/SIGTERM
 	sigCh := make(chan os.Signal, 1)
