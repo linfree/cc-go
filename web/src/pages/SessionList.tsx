@@ -12,6 +12,7 @@ interface Session {
   modified: string
   history_path: string
   git_branch: string
+  model: string
 }
 
 const PAGE_SIZE = 15
@@ -263,8 +264,10 @@ export default function SessionList() {
                 <th className="px-4 py-3 text-left">名称</th>
                 <th className="px-4 py-3 text-left">工作目录</th>
                 <th className="px-4 py-3 text-left">Git分支</th>
+                <th className="px-4 py-3 text-left">模型</th>
                 <th className="px-4 py-3 text-left">状态</th>
                 <th className="px-4 py-3 text-left">消息数</th>
+                <th className="px-4 py-3 text-left">创建时间</th>
                 <th className="px-4 py-3 text-left">最后活跃</th>
                 <th className="px-4 py-3 text-right">操作</th>
               </tr>
@@ -272,14 +275,14 @@ export default function SessionList() {
             <tbody>
               {loading && paged.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center text-on-surface-variant text-[14px]">
+                  <td colSpan={9} className="px-4 py-12 text-center text-on-surface-variant text-[14px]">
                     加载中...
                   </td>
                 </tr>
               )}
               {!loading && paged.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center text-on-surface-variant text-[14px]">
+                  <td colSpan={9} className="px-4 py-12 text-center text-on-surface-variant text-[14px]">
                     暂无会话记录
                   </td>
                 </tr>
@@ -310,12 +313,22 @@ export default function SessionList() {
                     )}
                   </td>
                   <td className="px-4 py-3">
+                    <span className="text-[12px] text-on-surface-variant">
+                      {session.model || '-'}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
                     <StatusBadge status={session.status} />
                   </td>
                   <td className="px-4 py-3">
                     <span className="flex items-center gap-1 font-mono text-[12px] text-on-surface-variant">
                       <span className="material-symbols-outlined text-[14px]">chat_bubble</span>
                       {session.message_count}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className="font-mono text-[12px] text-on-surface-variant">
+                      {formatTime(session.created)}
                     </span>
                   </td>
                   <td className="px-4 py-3">
