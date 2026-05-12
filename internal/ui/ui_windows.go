@@ -4,6 +4,7 @@ package ui
 
 import (
 	"fmt"
+	"runtime"
 	"sync"
 
 	"github.com/getlantern/systray"
@@ -17,13 +18,16 @@ type windowsUI struct {
 
 	mu      sync.Mutex
 	webview webview2.WebView
+	showReq chan struct{}
+	started bool
 }
 
 func newPlatformUI(port int, icon []byte) UI {
 	return &windowsUI{
-		port:  port,
-		icon:  icon,
-		quitC: make(chan struct{}),
+		port:    port,
+		icon:    icon,
+		quitC:   make(chan struct{}),
+		showReq: make(chan struct{}, 1),
 	}
 }
 
@@ -38,11 +42,11 @@ func (u *windowsUI) Run(onReady func()) {
 		systray.AddSeparator()
 		mQuit := systray.AddMenuItem("退出", "停止服务并退出")
 
-		// Start HTTP server first, then show window so page loads correctly
 		if onReady != nil {
 			onReady()
 		}
 
+		u.startWebviewLoop()
 		u.showWindow()
 
 		url := fmt.Sprintf("http://localhost:%d", u.port)
@@ -70,41 +74,62 @@ func (u *windowsUI) Run(onReady func()) {
 	})
 }
 
-func (u *windowsUI) showWindow() {
+// startWebviewLoop spawns a single OS-thread-locked goroutine that owns all
+// WebView2 windows. Win32 windows and COM objects must stay on their creating
+// thread, otherwise the message pump deadlocks.
+func (u *windowsUI) startWebviewLoop() {
 	u.mu.Lock()
-	if u.webview != nil {
+	if u.started {
 		u.mu.Unlock()
 		return
 	}
+	u.started = true
 	u.mu.Unlock()
 
 	go func() {
-		w := webview2.New(false)
-		defer func() {
+		runtime.LockOSThread()
+		defer runtime.UnlockOSThread()
+
+		for range u.showReq {
+			w := webview2.New(false)
+			if w == nil {
+				continue
+			}
+
+			u.mu.Lock()
+			u.webview = w
+			u.mu.Unlock()
+
+			w.SetTitle("cc-go")
+			w.SetSize(1024, 700, webview2.HintNone)
+			w.Navigate(fmt.Sprintf("http://localhost:%d", u.port))
+
+			// w.Run blocks until the window is destroyed (user clicks X
+			// or closeWebview calls w.Destroy from another goroutine).
+			w.Run()
+
 			u.mu.Lock()
 			u.webview = nil
 			u.mu.Unlock()
-			w.Destroy()
-		}()
-
-		u.mu.Lock()
-		u.webview = w
-		u.mu.Unlock()
-
-		w.SetTitle("cc-go")
-		w.SetSize(1024, 700, webview2.HintNone)
-		w.Navigate(fmt.Sprintf("http://localhost:%d", u.port))
-
-		w.Run()
+		}
 	}()
 }
 
+func (u *windowsUI) showWindow() {
+	select {
+	case u.showReq <- struct{}{}:
+	default:
+	}
+}
+
+// closeWebview posts WM_CLOSE from the calling goroutine. This is thread-safe
+// because Destroy() uses PostMessageW, which can be called from any thread.
 func (u *windowsUI) closeWebview() {
 	u.mu.Lock()
 	w := u.webview
 	u.mu.Unlock()
 	if w != nil {
-		w.Terminate()
+		w.Destroy()
 	}
 }
 
