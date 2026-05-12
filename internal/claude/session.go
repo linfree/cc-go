@@ -89,6 +89,7 @@ func Start(opts StartOptions) (*Session, error) {
 	s.cmd = exec.Command(s.cliPath, args...)
 	s.cmd.Dir = opts.WorkDir
 	s.cmd.Env = env
+	setHideWindow(s.cmd)
 
 	var err error
 	s.stdin, err = s.cmd.StdinPipe()
