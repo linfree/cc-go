@@ -23,12 +23,12 @@ build-win:
 	cd $(WEB_DIR) && npm run build
 	GOOS=windows GOARCH=amd64 go build -o $(APP_NAME).exe ./cmd/cc-go/
 
-run: web
-	go run ./cmd/cc-go/ start
+run:
+	go run ./cmd/cc-go/
 
 dev:
 	cd $(WEB_DIR) && npm run dev &
-	go run ./cmd/cc-go/ start
+	go run ./cmd/cc-go/
 
 clean:
 	rm -rf cmd/cc-go/web-dist $(APP_NAME) $(APP_NAME)-linux $(APP_NAME)-mac $(APP_NAME).exe
