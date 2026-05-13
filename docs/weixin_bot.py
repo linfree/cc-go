@@ -98,7 +98,7 @@ def load_or_create_config() -> dict:
     default_cfg = {
         "api_key": env_api_key or "YOUR_API_KEY",
         "base_url": env_base_url or "http://YOUR_SERVER:8000/v1",
-        "model": env_model or "Qwen3.5-35B-A3B",
+        "model": env_model or "YOUR_MODEL",
         "prompt": env_prompt,
     }
 
@@ -120,7 +120,7 @@ def load_or_create_config() -> dict:
 
     cfg["api_key"] = env_api_key or "YOUR_API_KEY"
     cfg["base_url"] = env_base_url or "http://YOUR_SERVER:8000/v1"
-    cfg["model"] = env_model or "Qwen3.5-35B-A3B"
+    cfg["model"] = env_model or "YOUR_MODEL"
     cfg["prompt"] = env_prompt or cfg.get("prompt", _DEFAULT_PROMPT)
 
     # 如果配置文件中存在旧的 API 连接信息，则仍然使用新的 OpenAI 参数
