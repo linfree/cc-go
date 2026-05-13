@@ -11,6 +11,7 @@ permissions:
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - goos: windows
@@ -18,29 +19,25 @@ jobs:
             runner: windows-latest
             ext: .exe
             ldflags: -H windowsgui
-            cgo: '0'
           - goos: darwin
             goarch: amd64
             runner: macos-latest
             ext: ''
             ldflags: ''
-            cgo: '1'
           - goos: darwin
             goarch: arm64
             runner: macos-latest
             ext: ''
             ldflags: ''
-            cgo: '1'
           - goos: linux
             goarch: amd64
             runner: ubuntu-latest
             ext: ''
             ldflags: ''
-            cgo: '0'
 
     runs-on: ${{ matrix.runner }}
     env:
-      CGO_ENABLED: ${{ matrix.cgo }}
+      CGO_ENABLED: 1
 
     steps:
       - uses: actions/checkout@v4
@@ -52,6 +49,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
+
+      - name: Install Linux dependencies
+        if: matrix.goos == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libayatana-appindicator3-dev
 
       - name: Build frontend
         run: cd web && npm install && npm run build
