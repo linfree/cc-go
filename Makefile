@@ -9,26 +9,26 @@ web:
 	cd $(WEB_DIR) && npm install && npm run build
 
 build:
-	go build -ldflags "-H windowsgui" -o $(APP_NAME) ./cmd/cc-go/
+	go build -ldflags "-H windowsgui -s -w" -o $(APP_NAME) ./cmd/cc-go/
 
 build-linux:
 	cd $(WEB_DIR) && npm run build
-	GOOS=linux GOARCH=amd64 go build -o $(APP_NAME)-linux ./cmd/cc-go/
+	GOOS=linux GOARCH=amd64 go build -ldflags "-s -w" -o $(APP_NAME)-linux ./cmd/cc-go/
 
 build-mac:
 	cd $(WEB_DIR) && npm run build
-	GOOS=darwin GOARCH=amd64 go build -o $(APP_NAME)-mac ./cmd/cc-go/
+	GOOS=darwin GOARCH=amd64 go build -ldflags "-s -w" -o $(APP_NAME)-mac ./cmd/cc-go/
 
 build-win:
 	cd $(WEB_DIR) && npm run build
-	GOOS=windows GOARCH=amd64 go build -ldflags "-H windowsgui" -o $(APP_NAME).exe ./cmd/cc-go/
+	GOOS=windows GOARCH=amd64 go build -ldflags "-H windowsgui -s -w" -o $(APP_NAME).exe ./cmd/cc-go/
 
 run:
-	go run -ldflags "-H windowsgui" ./cmd/cc-go/
+	go run -ldflags "-H windowsgui -s -w" ./cmd/cc-go/
 
 dev:
 	cd $(WEB_DIR) && npm run dev &
-	go run -ldflags "-H windowsgui" ./cmd/cc-go/
+	go run -ldflags "-H windowsgui -s -w" ./cmd/cc-go/
 
 clean:
 	rm -rf cmd/cc-go/web-dist $(APP_NAME) $(APP_NAME)-linux $(APP_NAME)-mac $(APP_NAME).exe

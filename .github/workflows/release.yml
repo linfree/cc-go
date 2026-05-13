@@ -18,22 +18,22 @@ jobs:
             goarch: amd64
             runner: windows-latest
             ext: .exe
-            ldflags: -H windowsgui
+            ldflags: -H windowsgui -s -w
           - goos: darwin
             goarch: amd64
             runner: macos-latest
             ext: ''
-            ldflags: ''
+            ldflags: -s -w
           - goos: darwin
             goarch: arm64
             runner: macos-latest
             ext: ''
-            ldflags: ''
+            ldflags: -s -w
           - goos: linux
             goarch: amd64
             runner: ubuntu-latest
             ext: ''
-            ldflags: ''
+            ldflags: -s -w
 
     runs-on: ${{ matrix.runner }}
     env:
