@@ -27,11 +27,48 @@ type Config struct {
 }
 
 type WechatConfig struct {
-	BotToken         string `json:"bot_token"`
-	BaseURL          string `json:"base_url"`
-	LoginTime        string `json:"login_time"`
-	LastFromID       string `json:"last_from_id"`
-	LastContextToken string `json:"last_context_token"`
+	BotToken                  string `json:"bot_token"`
+	BaseURL                   string `json:"base_url"`
+	LoginTime                 string `json:"login_time"`
+	LastFromID                string `json:"last_from_id"`
+	LastContextToken          string `json:"last_context_token"`
+	SendBudgetLimit           int    `json:"send_budget_limit"`
+	MaxBufferedMessages       int    `json:"max_buffered_messages"`
+	ActivationWarningHours    int    `json:"activation_warning_hours"`
+	ActivationReminderMinutes int    `json:"activation_reminder_minutes"`
+}
+
+func (w WechatConfig) GetSendBudgetLimit() int {
+	if w.SendBudgetLimit <= 0 {
+		return 7
+	}
+	return w.SendBudgetLimit
+}
+func (w WechatConfig) GetMaxBufferedMessages() int {
+	if w.MaxBufferedMessages <= 0 {
+		return 100
+	}
+	return w.MaxBufferedMessages
+}
+func (w WechatConfig) GetActivationWarningHours() int {
+	if w.ActivationWarningHours <= 0 {
+		return 20
+	}
+	return w.ActivationWarningHours
+}
+func (w WechatConfig) GetActivationReminderMinutes() int {
+	if w.ActivationReminderMinutes <= 0 {
+		return 60
+	}
+	return w.ActivationReminderMinutes
+}
+
+func (w WechatConfig) Normalize() WechatConfig {
+	w.SendBudgetLimit = w.GetSendBudgetLimit()
+	w.MaxBufferedMessages = w.GetMaxBufferedMessages()
+	w.ActivationWarningHours = w.GetActivationWarningHours()
+	w.ActivationReminderMinutes = w.GetActivationReminderMinutes()
+	return w
 }
 
 func DefaultConfig() *Config {
@@ -43,9 +80,13 @@ func DefaultConfig() *Config {
 		WebPort:         18080,
 		AutoOpenBrowser: true,
 		Wechat: WechatConfig{
-			BotToken:  "",
-			BaseURL:   "https://ilinkai.weixin.qq.com",
-			LoginTime: "",
+			BotToken:                  "",
+			BaseURL:                   "https://ilinkai.weixin.qq.com",
+			LoginTime:                 "",
+			SendBudgetLimit:           7,
+			MaxBufferedMessages:       100,
+			ActivationWarningHours:    21,
+			ActivationReminderMinutes: 60,
 		},
 		PushTypes:   []string{"permission", "claude_response", "tool_use", "session_status"},
 		BotCommands: DefaultBotCommands(),
@@ -56,17 +97,28 @@ func DefaultBotCommands() []BotCommand {
 	return []BotCommand{
 		{Key: "help", Keyword: "/help", Description: "查看帮助", Enabled: true},
 		{Key: "sessions", Keyword: "/sessions", Description: "列出会话", Enabled: true},
-		{Key: "switch", Keyword: "/switch", Description: "切换会话 (例: /switch <id>)", Enabled: true},
+		{Key: "switch", Keyword: "/switch", Description: "切换会话 (例: /switch 3)", Enabled: true},
 		{Key: "status", Keyword: "/status", Description: "查看当前会话状态", Enabled: true},
 		{Key: "stop", Keyword: "/stop", Description: "停止当前会话", Enabled: true},
 		{Key: "y", Keyword: "/y", Description: "批准权限请求 (例: /y 或 /y 3 或 /y all)", Enabled: true},
 		{Key: "n", Keyword: "/n", Description: "拒绝权限请求 (例: /n 或 /n 3 或 /n all)", Enabled: true},
+		{Key: "activate", Keyword: "/", Description: "激活消息轮次", Enabled: true},
+		{Key: "relogin", Keyword: "/relogin", Description: "重新登录机器人", Enabled: true},
 	}
 }
 
 func (c *Config) BotCommandByKeyword(keyword string) *BotCommand {
 	for i := range c.BotCommands {
 		if c.BotCommands[i].Keyword == keyword {
+			return &c.BotCommands[i]
+		}
+	}
+	return nil
+}
+
+func (c *Config) BotCommandByKey(key string) *BotCommand {
+	for i := range c.BotCommands {
+		if c.BotCommands[i].Key == key {
 			return &c.BotCommands[i]
 		}
 	}
@@ -106,6 +158,7 @@ func Load() (*Config, error) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, err
 	}
+	cfg.Wechat = cfg.Wechat.Normalize()
 	cfg.PushTypes = ensurePermission(cfg.PushTypes)
 	cfg.BotCommands = ensureBotCommands(cfg.BotCommands)
 	return &cfg, nil
@@ -125,6 +178,7 @@ func (c *Config) Save() error {
 	}
 	c.PushTypes = ensurePermission(c.PushTypes)
 	c.BotCommands = ensureBotCommands(c.BotCommands)
+	c.Wechat = c.Wechat.Normalize()
 	data, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
 		return err
@@ -218,6 +272,20 @@ func ensurePermission(types []string) []string {
 func ensureBotCommands(cmds []BotCommand) []BotCommand {
 	if len(cmds) == 0 {
 		return DefaultBotCommands()
+	}
+	// Merge missing default commands into existing config
+	defaults := DefaultBotCommands()
+	for _, d := range defaults {
+		found := false
+		for _, c := range cmds {
+			if c.Key == d.Key {
+				found = true
+				break
+			}
+		}
+		if !found {
+			cmds = append(cmds, d)
+		}
 	}
 	return cmds
 }

@@ -9,7 +9,7 @@ web:
 	cd $(WEB_DIR) && npm install && npm run build
 
 build:
-	go build -o $(APP_NAME) ./cmd/cc-go/
+	go build -ldflags "-H windowsgui" -o $(APP_NAME) ./cmd/cc-go/
 
 build-linux:
 	cd $(WEB_DIR) && npm run build
@@ -24,11 +24,11 @@ build-win:
 	GOOS=windows GOARCH=amd64 go build -ldflags "-H windowsgui" -o $(APP_NAME).exe ./cmd/cc-go/
 
 run:
-	go run ./cmd/cc-go/
+	go run -ldflags "-H windowsgui" ./cmd/cc-go/
 
 dev:
 	cd $(WEB_DIR) && npm run dev &
-	go run ./cmd/cc-go/
+	go run -ldflags "-H windowsgui" ./cmd/cc-go/
 
 clean:
 	rm -rf cmd/cc-go/web-dist $(APP_NAME) $(APP_NAME)-linux $(APP_NAME)-mac $(APP_NAME).exe

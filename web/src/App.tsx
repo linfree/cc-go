@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { useState } from 'react'
 import SideNavBar from './components/SideNavBar'
 import TopAppBar from './components/TopAppBar'
@@ -10,14 +10,25 @@ import WechatBind from './pages/WechatBind'
 import Settings from './pages/Settings'
 
 function Shell() {
-  const [newSessionOpen, setNewSessionOpen] = useState(false)
+  const navigate = useNavigate()
+  const location = useLocation()
+  const [newSessionSignal, setNewSessionSignal] = useState(0)
+
+  const handleNewSession = () => {
+    if (location.pathname !== '/sessions') {
+      navigate('/sessions', { state: { newSession: true } })
+    } else {
+      setNewSessionSignal(prev => prev + 1)
+    }
+  }
+
   return (
     <div className="h-screen bg-background text-on-surface overflow-hidden">
-      <SideNavBar onNewSession={() => setNewSessionOpen(true)} />
+      <SideNavBar onNewSession={handleNewSession} />
       <div className="ml-sidebar h-full flex flex-col overflow-hidden">
         <TopAppBar />
         <main className="flex-1 overflow-y-auto">
-          <Outlet context={{ newSessionOpen, setNewSessionOpen }} />
+          <Outlet context={{ newSessionSignal, setNewSessionSignal }} />
         </main>
       </div>
     </div>

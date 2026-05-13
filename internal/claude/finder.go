@@ -40,6 +40,7 @@ func FindClaudeCLI() (string, error) {
 
 func ValidateClaudeCLI(path string) (string, error) {
 	cmd := exec.Command(path, "--version")
+	setHideWindow(cmd)
 	out, err := cmd.Output()
 	if err != nil {
 		return "", err

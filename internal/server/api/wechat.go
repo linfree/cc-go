@@ -5,11 +5,19 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/linfree/cc-go/internal/bridge"
 	"github.com/linfree/cc-go/internal/config"
 	"github.com/linfree/cc-go/internal/wechat"
 )
 
-func registerWechatRoutes(r *gin.RouterGroup, cfg *config.Config, wc *wechat.Client) {
+func maskToken(token string) string {
+	if len(token) <= 8 {
+		return "****"
+	}
+	return token[:4] + "****" + token[len(token)-4:]
+}
+
+func registerWechatRoutes(r *gin.RouterGroup, cfg *config.Config, wc *wechat.Client, br *bridge.Bridge) {
 	r.GET("/wechat/qrcode", func(c *gin.Context) {
 		if wc == nil {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "wechat client not initialized"})
@@ -56,13 +64,34 @@ func registerWechatRoutes(r *gin.RouterGroup, cfg *config.Config, wc *wechat.Cli
 		if len(wxid) > 16 {
 			wxid = wxid[:16]
 		}
-		c.JSON(http.StatusOK, gin.H{
-			"connected":  connected,
-			"status":     status,
-			"login_time": cfg.Wechat.LoginTime,
-			"bot_name":   "cc-go",
-			"wxid":       wxid,
-		})
+
+		resp := gin.H{
+			"connected":    connected,
+			"status":       status,
+			"login_time":   cfg.Wechat.LoginTime,
+			"bot_name":     "cc-go",
+			"wxid":         wxid,
+			"masked_token": maskToken(cfg.Wechat.BotToken),
+		}
+
+		if br != nil {
+			info := br.GetWechatInfo()
+			resp["send_budget"] = info.SendBudget
+			resp["buffer_mode"] = info.BufferMode
+			resp["buffered_count"] = info.BufferedCount
+			resp["last_msg_time"] = info.LastMsgTime
+			resp["budget_limit"] = cfg.Wechat.GetSendBudgetLimit()
+		}
+
+		if cfg.Wechat.LoginTime != "" {
+			loginTime, err := time.Parse(time.RFC3339, cfg.Wechat.LoginTime)
+			if err == nil {
+				nextReminder := loginTime.Add(time.Duration(cfg.Wechat.GetActivationWarningHours()) * time.Hour)
+				resp["next_reminder_time"] = nextReminder.Format(time.RFC3339)
+			}
+		}
+
+		c.JSON(http.StatusOK, resp)
 	})
 
 	r.POST("/wechat/disconnect", func(c *gin.Context) {
@@ -70,5 +99,32 @@ func registerWechatRoutes(r *gin.RouterGroup, cfg *config.Config, wc *wechat.Cli
 			wc.Stop()
 		}
 		c.JSON(http.StatusOK, gin.H{"status": "disconnected"})
+	})
+
+	r.PUT("/wechat/settings", func(c *gin.Context) {
+		var req struct {
+			SendBudgetLimit           *int    `json:"send_budget_limit"`
+			MaxBufferedMessages       *int    `json:"max_buffered_messages"`
+			ActivationWarningHours    *int `json:"activation_warning_hours"`
+			ActivationReminderMinutes *int `json:"activation_reminder_minutes"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		if req.SendBudgetLimit != nil {
+			cfg.Wechat.SendBudgetLimit = *req.SendBudgetLimit
+		}
+		if req.MaxBufferedMessages != nil {
+			cfg.Wechat.MaxBufferedMessages = *req.MaxBufferedMessages
+		}
+		if req.ActivationWarningHours != nil {
+			cfg.Wechat.ActivationWarningHours = *req.ActivationWarningHours
+		}
+		if req.ActivationReminderMinutes != nil {
+			cfg.Wechat.ActivationReminderMinutes = *req.ActivationReminderMinutes
+		}
+		cfg.Save()
+		c.JSON(http.StatusOK, gin.H{"status": "saved"})
 	})
 }

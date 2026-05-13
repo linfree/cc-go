@@ -12,6 +12,7 @@ interface Session {
   modified: string
   history_path: string
   git_branch: string
+  model: string
 }
 
 interface LogEntry {
@@ -42,10 +43,10 @@ const statusBadgeColor: Record<string, string> = {
 }
 
 const statusLabel: Record<string, string> = {
-  active: '活跃',
-  idle: '空闲',
+  active: '运行',
+  idle: '停止',
   computing: '计算中',
-  stopped: '已停止',
+  stopped: '停止',
   error: '错误',
 }
 
@@ -65,6 +66,7 @@ export default function Dashboard() {
   const [activeSessions, setActiveSessions] = useState<Session[]>([])
   const [logEntries, setLogEntries] = useState<LogEntry[]>([])
   const [wechatStatus, setWechatStatus] = useState<{ connected: boolean }>({ connected: false })
+  const [syncing, setSyncing] = useState(false)
 
   const fetchAll = async () => {
     try {
@@ -78,7 +80,7 @@ export default function Dashboard() {
       if (sessData.status === 'fulfilled') {
         const all = (sessData.value || []) as Session[]
         setSessions(all)
-        setActiveSessions(all.filter(s => s.status === 'active' || s.status === 'idle' || s.status === 'computing'))
+        setActiveSessions(all.filter(s => s.status === 'active'))
       }
 
       if (logData.status === 'fulfilled') {
@@ -137,9 +139,24 @@ export default function Dashboard() {
   return (
     <main className="flex-1 p-8 max-w-[1440px] mx-auto w-full flex flex-col gap-8">
       {/* Page Header */}
-      <div>
-        <h1 className="text-[30px] font-bold text-primary">系统概览</h1>
-        <p className="text-on-surface-variant text-[14px] mt-1">监控 cc-go 进程及活跃代理会话。</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-[30px] font-bold text-primary">系统概览</h1>
+          <p className="text-on-surface-variant text-[14px] mt-1">监控 cc-go 进程及活跃代理会话。</p>
+        </div>
+        <button
+          onClick={async () => {
+            setSyncing(true)
+            try { await api.syncSessions() } catch {}
+            await fetchAll()
+            setSyncing(false)
+          }}
+          disabled={syncing}
+          className="flex items-center gap-1.5 px-4 py-2 text-[13px] font-medium text-secondary border border-secondary/20 rounded hover:bg-secondary/10 transition disabled:opacity-50"
+        >
+          <span className="material-symbols-outlined text-[16px]">sync</span>
+          {syncing ? '同步中...' : '同步会话'}
+        </button>
       </div>
 
       {/* Stats Grid */}
@@ -166,65 +183,8 @@ export default function Dashboard() {
 
       {/* Two-column section */}
       <div className="grid grid-cols-12 gap-6">
-        {/* Left: Active Sessions */}
+        {/* Left: System log */}
         <div className="col-span-12 lg:col-span-8 flex flex-col gap-4">
-          <h2 className="text-[18px] font-semibold text-primary">活跃会话</h2>
-          {activeSessions.length === 0 ? (
-            <div className="bg-surface-container border border-outline-variant rounded-lg p-8 flex flex-col items-center justify-center gap-3">
-              <span className="material-symbols-outlined text-on-surface-variant text-[40px]">terminal</span>
-              <p className="text-on-surface-variant text-[14px]">暂无活跃会话</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {activeSessions.map(session => (
-                <div
-                  key={session.id}
-                  className="bg-surface-container border border-outline-variant rounded-lg p-4 flex flex-col gap-3 hover:border-secondary/50 transition-colors"
-                >
-                  {/* Header: dot + id + status */}
-                  <div className="flex items-center gap-2">
-                    <div className={`w-2 h-2 rounded-full ${statusDotColor[session.status] || 'bg-outline-variant'}`} />
-                    <span className="font-mono text-[11px] text-on-surface-variant">{session.id}</span>
-                    <span className={`ml-auto text-[10px] font-mono px-1.5 py-0.5 rounded border ${statusBadgeColor[session.status] || 'text-on-surface-variant bg-surface-variant border-outline-variant'}`}>
-                      {statusLabel[session.status] || session.status}
-                    </span>
-                  </div>
-
-                  {/* Work dir */}
-                  <div className="font-mono text-[12px] bg-surface-container-lowest rounded px-2 py-1 text-on-surface-variant truncate">
-                    {session.work_dir}
-                  </div>
-
-                  {/* Footer: git branch + message count */}
-                  <div className="flex items-center gap-2 text-[11px]">
-                    {session.git_branch && (
-                      <span className="flex items-center gap-1 font-mono text-on-surface-variant bg-surface-container-lowest rounded px-1.5 py-0.5">
-                        <span className="material-symbols-outlined text-[12px] text-secondary">fork_right</span>
-                        {session.git_branch}
-                      </span>
-                    )}
-                    <span className="flex items-center gap-1 font-mono text-on-surface-variant">
-                      <span className="material-symbols-outlined text-[12px]">chat_bubble</span>
-                      {session.message_count} 条消息
-                    </span>
-                  </div>
-
-                  {/* Action button */}
-                  <button
-                    onClick={() => navigate(`/sessions/${session.id}`)}
-                    className="mt-auto flex items-center justify-center gap-1.5 py-1.5 px-3 text-[12px] font-medium text-secondary border border-secondary/20 rounded hover:bg-secondary/10 transition-colors"
-                  >
-                    <span className="material-symbols-outlined text-[14px]">visibility</span>
-                    查看详情
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Right: Mini system log */}
-        <div className="col-span-12 lg:col-span-4 flex flex-col gap-4">
           <h2 className="text-[18px] font-semibold text-primary">系统日志</h2>
           <div className="bg-surface-container border border-outline-variant rounded-lg overflow-hidden flex flex-col">
             {/* Terminal header */}
@@ -299,6 +259,69 @@ export default function Dashboard() {
               </button>
             </div>
           </div>
+        </div>
+
+        {/* Right: Active Sessions */}
+        <div className="col-span-12 lg:col-span-4 flex flex-col gap-4">
+          <h2 className="text-[18px] font-semibold text-primary">活跃会话</h2>
+          {activeSessions.length === 0 ? (
+            <div className="bg-surface-container border border-outline-variant rounded-lg p-8 flex flex-col items-center justify-center gap-3">
+              <span className="material-symbols-outlined text-on-surface-variant text-[40px]">terminal</span>
+              <p className="text-on-surface-variant text-[14px]">暂无活跃会话</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-4">
+              {activeSessions.map(session => (
+                <div
+                  key={session.id}
+                  className="bg-surface-container border border-outline-variant rounded-lg p-4 flex flex-col gap-3 hover:border-secondary/50 transition-colors"
+                >
+                  {/* Header: name + status */}
+                  <div className="flex items-center gap-2">
+                    <div className={`w-2 h-2 rounded-full ${statusDotColor[session.status] || 'bg-outline-variant'}`} />
+                    <span className="text-[13px] text-primary truncate">{session.name || '(无标题)'}</span>
+                    <span className={`ml-auto text-[10px] font-mono px-1.5 py-0.5 rounded border ${statusBadgeColor[session.status] || 'text-on-surface-variant bg-surface-variant border-outline-variant'}`}>
+                      {statusLabel[session.status] || session.status}
+                    </span>
+                  </div>
+
+                  {/* Work dir */}
+                  <div className="font-mono text-[12px] bg-surface-container-lowest rounded px-2 py-1 text-on-surface-variant truncate">
+                    {session.work_dir}
+                  </div>
+
+					{/* Footer: model + git branch + message count */}
+					<div className="flex items-center gap-2 text-[11px] flex-wrap">
+						{session.model && (
+							<span className="flex items-center gap-1 font-mono text-on-surface-variant bg-surface-container-lowest rounded px-1.5 py-0.5">
+								<span className="material-symbols-outlined text-[12px] text-tertiary">smart_toy</span>
+								{session.model}
+							</span>
+						)}
+						{session.git_branch && (
+							<span className="flex items-center gap-1 font-mono text-on-surface-variant bg-surface-container-lowest rounded px-1.5 py-0.5">
+								<span className="material-symbols-outlined text-[12px] text-secondary">fork_right</span>
+								{session.git_branch}
+							</span>
+						)}
+						<span className="flex items-center gap-1 font-mono text-on-surface-variant">
+							<span className="material-symbols-outlined text-[12px]">chat_bubble</span>
+							{session.message_count} 条消息
+						</span>
+					</div>
+
+                  {/* Action button */}
+                  <button
+                    onClick={() => navigate(`/sessions/${session.id}`)}
+                    className="mt-auto flex items-center justify-center gap-1.5 py-1.5 px-3 text-[12px] font-medium text-secondary border border-secondary/20 rounded hover:bg-secondary/10 transition-colors"
+                  >
+                    <span className="material-symbols-outlined text-[14px]">visibility</span>
+                    查看详情
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </main>

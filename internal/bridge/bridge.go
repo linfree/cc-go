@@ -1,6 +1,7 @@
 package bridge
 
 import (
+	"bytes"
 	"fmt"
 	"strconv"
 	"strings"
@@ -16,6 +17,18 @@ import (
 
 const maxWeChatMsgLen = 3500
 
+type bufferedMessage struct {
+	text   string
+	isPerm bool
+}
+
+type WechatInfo struct {
+	SendBudget    int    `json:"send_budget"`
+	BufferMode    bool   `json:"buffer_mode"`
+	BufferedCount int    `json:"buffered_count"`
+	LastMsgTime   string `json:"last_msg_time"`
+}
+
 type Bridge struct {
 	config        *config.Config
 	store         *store.Store
@@ -28,6 +41,11 @@ type Bridge struct {
 	mu            sync.Mutex
 	eventBus      chan interface{}
 	typingStopCh  chan struct{}
+	sendBudget    int
+	bufferMode    bool
+	msgBuffer     []bufferedMessage
+	pendingText   bytes.Buffer
+	lastMsgTime   string
 }
 
 type pendingPermission struct {
@@ -54,11 +72,57 @@ type WSEvent struct {
 }
 
 func New(cfg *config.Config, s *store.Store) *Bridge {
-	return &Bridge{
+	br := &Bridge{
 		config:   cfg,
 		store:    s,
 		eventBus: make(chan interface{}, 200),
 	}
+	br.SyncSessions()
+	go br.periodicSync()
+	return br
+}
+
+func (b *Bridge) periodicSync() {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+	for range ticker.C {
+		b.SyncSessions()
+	}
+}
+
+// SyncSessions merges Claude's discovered JSONL sessions into the store database.
+func (b *Bridge) SyncSessions() {
+	sessions, err := claude.DiscoverSessions()
+	if err != nil {
+		return
+	}
+	var discovered []struct {
+		ID           string
+		Name         string
+		WorkDir      string
+		Model        string
+		Modified     string
+		MessageCount int
+		GitBranch    string
+		FilePath     string
+	}
+	for _, s := range sessions {
+		name := s.FirstPrompt
+		if storeSess, _ := b.store.GetSession(s.ID); storeSess != nil && storeSess.Name != "" {
+			name = storeSess.Name
+		}
+		discovered = append(discovered, struct {
+			ID           string
+			Name         string
+			WorkDir      string
+			Model        string
+			Modified     string
+			MessageCount int
+			GitBranch    string
+			FilePath     string
+		}{s.ID, name, s.ProjectPath, s.Model, s.Modified, s.MessageCount, s.GitBranch, s.FilePath})
+	}
+	b.store.SyncFromDiscovery(discovered)
 }
 
 func (b *Bridge) SetWechatClient(wc *wechat.Client) {
@@ -132,6 +196,13 @@ func (b *Bridge) emit(evt WSEvent) {
 }
 
 func (b *Bridge) HandleWechatMessage(msg wechat.Message) {
+	b.flushMessageBuffer(msg)
+	b.resetSendBudget()
+
+	b.mu.Lock()
+	b.lastMsgTime = time.Now().Format(time.RFC3339)
+	b.mu.Unlock()
+
 	text := strings.TrimSpace(msg.Text)
 
 	helpCmd := b.config.BotCommandByKeyword("/help")
@@ -141,17 +212,18 @@ func (b *Bridge) HandleWechatMessage(msg wechat.Message) {
 	stopCmd := b.config.BotCommandByKeyword("/stop")
 	yCmd := b.config.BotCommandByKeyword("/y")
 	nCmd := b.config.BotCommandByKeyword("/n")
+	reloginCmd := b.config.BotCommandByKey("relogin")
 
 	if helpCmd != nil && helpCmd.Enabled && text == helpCmd.Keyword {
 		var sb strings.Builder
-		sb.WriteString("**可用指令**\n")
+		sb.WriteString("**可用指令**\n\n")
 		for _, c := range b.config.BotCommands {
 			if c.Key == "help" || !c.Enabled {
 				continue
 			}
-			sb.WriteString(fmt.Sprintf("`%s` %s\n", c.Keyword, c.Description))
+			sb.WriteString(fmt.Sprintf("- `%s` %s\n", c.Keyword, c.Description))
 		}
-		b.sendWechat(msg, sb.String())
+		b.sendWechatBudgetedSingle(sb.String())
 		return
 	}
 	if sessionsCmd != nil && sessionsCmd.Enabled && text == sessionsCmd.Keyword {
@@ -192,6 +264,10 @@ func (b *Bridge) HandleWechatMessage(msg wechat.Message) {
 			return
 		}
 	}
+	if reloginCmd != nil && reloginCmd.Enabled && text == reloginCmd.Keyword {
+		b.handleRelogin(msg)
+		return
+	}
 
 	// /r <text> — respond to AskUserQuestion with custom answer
 	if strings.HasPrefix(text, "/r ") {
@@ -206,7 +282,7 @@ func (b *Bridge) HandleWechatMessage(msg wechat.Message) {
 		}
 		if idx < 0 {
 			b.mu.Unlock()
-			b.sendWechat(msg, "当前没有待回答的提问")
+			b.sendWechatBudgetedSingle("当前没有待回答的提问")
 			return
 		}
 		found := b.pendingPerms[idx]
@@ -215,13 +291,13 @@ func (b *Bridge) HandleWechatMessage(msg wechat.Message) {
 		remaining := len(b.pendingPerms)
 		b.mu.Unlock()
 		if sess == nil {
-			b.sendWechat(msg, "会话已结束")
+			b.sendWechatBudgetedSingle("会话已结束")
 			return
 		}
 		if err := sess.RespondWithAnswer(found.RequestID, found.ToolInput, after); err != nil {
-			b.sendWechat(msg, fmt.Sprintf("回复失败: %v", err))
+			b.sendWechatBudgetedSingle(fmt.Sprintf("回复失败: %v", err))
 		} else {
-			b.sendWechat(msg, fmt.Sprintf("✅ 已回复: %s", after))
+			b.sendWechatBudgetedSingle(fmt.Sprintf("✅ 已回复: %s", after))
 			if remaining == 0 {
 				b.restartTyping(msg.FromUserID, msg.ContextToken)
 			}
@@ -234,7 +310,7 @@ func (b *Bridge) HandleWechatMessage(msg wechat.Message) {
 	b.mu.Unlock()
 
 	if sess == nil || sess.Status != claude.StatusActive {
-		b.sendWechat(msg, "当前没有活跃的 Claude 会话。请先在 Web 界面选择或启动会话。")
+		b.sendWechatBudgetedSingle("当前没有活跃的 Claude 会话。请先在 Web 界面选择或启动会话。")
 		return
 	}
 
@@ -246,7 +322,7 @@ func (b *Bridge) HandleWechatMessage(msg wechat.Message) {
 
 	if err := sess.SendMessage(text); err != nil {
 		b.stopTyping()
-		b.sendWechat(msg, fmt.Sprintf("发送消息失败: %v", err))
+		b.sendWechatBudgetedSingle(fmt.Sprintf("发送消息失败: %v", err))
 	} else {
 		b.mu.Lock()
 		if b.activeLogger != nil {
@@ -257,31 +333,31 @@ func (b *Bridge) HandleWechatMessage(msg wechat.Message) {
 }
 
 func (b *Bridge) handleSessions(msg wechat.Message) {
-	historySessions, err := claude.DiscoverSessions()
-	if err != nil {
-		b.sendWechat(msg, "获取会话列表失败")
-		return
-	}
-	if len(historySessions) == 0 {
-		b.sendWechat(msg, "暂无会话记录")
+	storeSessions, err := b.store.ListSessions()
+	if err != nil || len(storeSessions) == 0 {
+		b.sendWechatBudgetedSingle("暂无会话记录")
 		return
 	}
 	activeID := b.ActiveSessionID()
 	var sb strings.Builder
 	sb.WriteString("**会话列表（最近10条）**\n\n---\n\n")
-	count := 0
-	for _, s := range historySessions {
-		if count >= 10 {
-			break
-		}
+	limit := 10
+	if len(storeSessions) < limit {
+		limit = len(storeSessions)
+	}
+	for _, s := range storeSessions[:limit] {
 		statusLabel := "○"
 		if s.ID == activeID {
 			statusLabel = "●"
 		}
-		sb.WriteString(fmt.Sprintf("%s `%s` %s\n\n", statusLabel, s.ID, s.FirstPrompt))
-		count++
+		name := s.Name
+		if name == "" {
+			name = s.WorkDir
+		}
+		sb.WriteString(fmt.Sprintf("%s #%d %s\n\n", statusLabel, s.Seq, name))
 	}
-	b.sendWechat(msg, sb.String())
+	sb.WriteString("---\n回复 `/switch <编号>` 切换会话")
+	b.sendWechatBudgetedSingle(sb.String())
 }
 
 func (b *Bridge) handleStatus(msg wechat.Message) {
@@ -290,10 +366,10 @@ func (b *Bridge) handleStatus(msg wechat.Message) {
 	b.mu.Unlock()
 
 	if sess == nil {
-		b.sendWechat(msg, "当前无活跃会话")
+		b.sendWechatBudgetedSingle("当前无活跃会话")
 		return
 	}
-	b.sendWechat(msg, fmt.Sprintf("**会话状态**\n> 名称: %s\n> 状态: %s\n> 目录: %s", sess.Name, sess.Status, sess.WorkDir))
+	b.sendWechatBudgetedSingle(fmt.Sprintf("**会话状态**\n> 名称: %s\n> 状态: %s\n> 目录: %s", sess.Name, sess.Status, sess.WorkDir))
 }
 
 func (b *Bridge) handleStop(msg wechat.Message) {
@@ -302,11 +378,23 @@ func (b *Bridge) handleStop(msg wechat.Message) {
 	b.mu.Unlock()
 
 	if sess == nil {
-		b.sendWechat(msg, "当前无活跃会话")
+		b.sendWechatBudgetedSingle("当前无活跃会话")
 		return
 	}
 	b.StopSession()
-	b.sendWechat(msg, "会话已停止")
+	b.sendWechatBudgetedSingle("会话已停止")
+}
+
+func (b *Bridge) handleRelogin(msg wechat.Message) {
+	if b.wechatClient == nil {
+		b.sendWechatBudgetedSingle("微信客户端未初始化")
+		return
+	}
+	if err := b.wechatClient.TriggerRelogin(); err != nil {
+		b.sendWechatBudgetedSingle(fmt.Sprintf("重新登录失败: %v", err))
+	} else {
+		b.sendWechatBudgetedSingle("已发送重新登录链接，请点击链接扫码登录。")
+	}
 }
 
 func (b *Bridge) handleBatchApprove(arg string, msg wechat.Message) {
@@ -319,7 +407,7 @@ func (b *Bridge) handleBatchApprove(arg string, msg wechat.Message) {
 	}
 	n, err := strconv.Atoi(arg)
 	if err != nil || n < 1 {
-		b.sendWechat(msg, "用法: /y <数量> 或 /y all")
+		b.sendWechatBudgetedSingle("用法: /y <数量> 或 /y all")
 		return
 	}
 	b.handlePermissionResponse(true, n, msg)
@@ -335,7 +423,7 @@ func (b *Bridge) handleBatchReject(arg string, msg wechat.Message) {
 	}
 	n, err := strconv.Atoi(arg)
 	if err != nil || n < 1 {
-		b.sendWechat(msg, "用法: /n <数量> 或 /n all")
+		b.sendWechatBudgetedSingle("用法: /n <数量> 或 /n all")
 		return
 	}
 	b.handlePermissionResponse(false, n, msg)
@@ -345,7 +433,7 @@ func (b *Bridge) handlePermissionResponse(allow bool, count int, msg wechat.Mess
 	b.mu.Lock()
 	if len(b.pendingPerms) == 0 {
 		b.mu.Unlock()
-		b.sendWechat(msg, "当前没有待处理的权限请求")
+		b.sendWechatBudgetedSingle("当前没有待处理的权限请求")
 		return
 	}
 	if count > len(b.pendingPerms) {
@@ -357,7 +445,7 @@ func (b *Bridge) handlePermissionResponse(allow bool, count int, msg wechat.Mess
 	remaining := len(b.pendingPerms)
 	b.mu.Unlock()
 	if sess == nil {
-		b.sendWechat(msg, "会话已结束，无法响应权限请求")
+		b.sendWechatBudgetedSingle("会话已结束，无法响应权限请求")
 		return
 	}
 
@@ -373,13 +461,12 @@ func (b *Bridge) handlePermissionResponse(allow bool, count int, msg wechat.Mess
 		}
 	}
 	if count == 1 {
-		b.sendWechat(msg, fmt.Sprintf("%s `%s`", action, toProcess[0].ToolName))
+		b.sendWechatBudgetedSingle(fmt.Sprintf("%s `%s`", action, toProcess[0].ToolName))
 	} else {
-		b.sendWechat(msg, fmt.Sprintf("批量%s %d 个权限请求", action, count))
+		b.sendWechatBudgetedSingle(fmt.Sprintf("批量%s %d 个权限请求", action, count))
 	}
 
 	if remaining > 0 {
-		// Check if there's any AskUserQuestion pending
 		hasAskUser := false
 		b.mu.Lock()
 		for _, p := range b.pendingPerms {
@@ -393,7 +480,7 @@ func (b *Bridge) handlePermissionResponse(allow bool, count int, msg wechat.Mess
 		if hasAskUser {
 			hint += "  `/r <回答>` 回答提问"
 		}
-		b.sendWechat(msg, hint)
+		b.sendWechatBudgetedSingle(hint)
 	} else {
 		b.restartTyping(msg.FromUserID, msg.ContextToken)
 	}
@@ -447,8 +534,6 @@ func (b *Bridge) StartSession(opts claude.StartOptions) error {
 	logger, _ := claude.NewSessionLogger(sessionID)
 	b.activeLogger = logger
 
-	// Store session metadata for resume sessions.
-	// New sessions get their ID from the system event.
 	if sessionID != "" {
 		b.store.InsertSession(&store.Session{
 			ID:      sessionID,
@@ -519,14 +604,17 @@ func (b *Bridge) readClaudeEvents(sess *claude.Session, logger *claude.SessionLo
 			if evt.Text != "" {
 				logger.Assistant(evt.Text)
 				if b.config.IsPushEnabled("claude_response") {
-					b.sendWechatToLast(evt.Text)
+					b.mu.Lock()
+					b.pendingText.WriteString(evt.Text)
+					b.mu.Unlock()
 				}
 			}
 			for _, block := range evt.Content {
 				if block.Type == "tool_use" {
 					logger.ToolUse(block.Name, fmt.Sprintf("%v", truncateInput(block.Input)))
+					b.flushWechatBudgeted()
 					if b.config.IsPushEnabled("tool_use") {
-						b.sendWechatToLast(fmt.Sprintf("**工具调用** `%s`\n> %v", block.Name, truncateInput(block.Input)))
+						b.sendWechatBudgetedSingle(fmt.Sprintf("**工具调用** `%s`\n> %v", block.Name, truncateInput(block.Input)))
 					}
 				}
 				if block.Type == "thinking" {
@@ -554,7 +642,7 @@ func (b *Bridge) readClaudeEvents(sess *claude.Session, logger *claude.SessionLo
 			logger.PermissionRequest(evt.ToolName, fmt.Sprintf("%v", truncateInput(evt.ToolInput)))
 
 			permMsg := b.formatPermissionWeChat(count, evt.ToolName, evt.ToolInput)
-			b.sendWechatToLast(permMsg)
+			b.sendWechatBudgetedPerm(permMsg)
 			b.emit(WSEvent{
 				Event:     "permission_request",
 				SessionID: b.activeSessID,
@@ -565,11 +653,12 @@ func (b *Bridge) readClaudeEvents(sess *claude.Session, logger *claude.SessionLo
 
 		case claude.EventResult:
 			logger.Result(evt.StopReason, evt.DurationMs, evt.NumTurns)
+			b.flushWechatBudgeted()
 			if evt.StopReason != "tool_use" {
 				b.stopTyping()
 			}
 			if b.config.IsPushEnabled("session_status") {
-				b.sendWechatToLast(fmt.Sprintf("✅ **完成** %s (耗时 %dms, %d 轮)",
+				b.sendWechatBudgetedSingle(fmt.Sprintf("✅ **完成** %s (耗时 %dms, %d 轮)",
 					evt.StopReason, evt.DurationMs, evt.NumTurns))
 			}
 
@@ -592,7 +681,7 @@ func (b *Bridge) readClaudeEvents(sess *claude.Session, logger *claude.SessionLo
 			if remaining == 0 {
 				b.restartTypingFromLast()
 			}
-			b.sendWechatToLast(fmt.Sprintf("权限请求已取消，剩余 %d 个", remaining))
+			b.sendWechatBudgetedSingle(fmt.Sprintf("权限请求已取消，剩余 %d 个", remaining))
 			b.emit(WSEvent{
 				Event:     "permission_cancel",
 				SessionID: b.activeSessID,
@@ -603,7 +692,6 @@ func (b *Bridge) readClaudeEvents(sess *claude.Session, logger *claude.SessionLo
 }
 
 func (b *Bridge) formatPermissionWeChat(count int, toolName string, input map[string]interface{}) string {
-	// Check if this is AskUserQuestion
 	if questions, ok := input["questions"].([]interface{}); ok && len(questions) > 0 {
 		var sb strings.Builder
 		sb.WriteString(fmt.Sprintf("**提问** [%d]\n---\n", count))
@@ -640,7 +728,6 @@ func (b *Bridge) formatPermissionWeChat(count int, toolName string, input map[st
 		return sb.String()
 	}
 
-	// Regular tool permission — show command preview
 	return fmt.Sprintf("**权限请求** [%d]\n> 工具: `%s`\n> %s\n---\n回复 `/y` 批准  `/n` 拒绝",
 		count, toolName, truncateInput(input))
 }
@@ -657,6 +744,9 @@ func (b *Bridge) StopSessionLocked() {
 	}
 	b.pendingPerms = nil
 	b.newSession = nil
+	b.msgBuffer = nil
+	b.bufferMode = false
+	b.pendingText.Reset()
 	if b.activeLogger != nil {
 		b.activeLogger.Close()
 		b.activeLogger = nil
@@ -668,27 +758,40 @@ func (b *Bridge) StopSessionLocked() {
 	b.activeSessID = ""
 }
 
-func (b *Bridge) resumeSession(id string, msg wechat.Message) {
-	var workDir, name string
-	sessMeta, err := b.store.GetSession(id)
-	if err == nil {
+func (b *Bridge) resumeSession(arg string, msg wechat.Message) {
+	// Try seq number first, then fallback to session ID
+	var sessionID, workDir, name string
+	if seq, err := strconv.Atoi(arg); err == nil {
+		sessMeta, err := b.store.GetSessionBySeq(seq)
+		if err != nil || sessMeta == nil {
+			b.sendWechatBudgetedSingle(fmt.Sprintf("找不到会话编号 #%d", seq))
+			return
+		}
+		sessionID = sessMeta.ID
 		workDir = sessMeta.WorkDir
 		name = sessMeta.Name
-	} else if hs := claude.FindSession(id); hs != nil {
-		workDir = hs.ProjectPath
-		name = hs.FirstPrompt
+	} else {
+		sessionID = arg
+		sessMeta, err := b.store.GetSession(arg)
+		if err == nil {
+			workDir = sessMeta.WorkDir
+			name = sessMeta.Name
+		} else if hs := claude.FindSession(arg); hs != nil {
+			workDir = hs.ProjectPath
+			name = hs.FirstPrompt
+		}
 	}
 	if workDir == "" {
-		b.sendWechat(msg, fmt.Sprintf("找不到会话: %s", id))
+		b.sendWechatBudgetedSingle(fmt.Sprintf("找不到会话: %s", arg))
 		return
 	}
-	err = b.StartSession(claude.StartOptions{
+	err := b.StartSession(claude.StartOptions{
 		WorkDir:  workDir,
 		Name:     name,
-		ResumeID: id,
+		ResumeID: sessionID,
 	})
 	if err != nil {
-		b.sendWechat(msg, fmt.Sprintf("恢复会话失败: %v", err))
+		b.sendWechatBudgetedSingle(fmt.Sprintf("恢复会话失败: %v", err))
 	}
 }
 
@@ -710,6 +813,17 @@ func (b *Bridge) GetPendingPermissions() []PendingPermissionInfo {
 		}
 	}
 	return result
+}
+
+func (b *Bridge) GetWechatInfo() WechatInfo {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return WechatInfo{
+		SendBudget:    b.sendBudget,
+		BufferMode:    b.bufferMode,
+		BufferedCount: len(b.msgBuffer),
+		LastMsgTime:   b.lastMsgTime,
+	}
 }
 
 func (b *Bridge) SendUserMessage(text string) error {
@@ -770,6 +884,186 @@ func (b *Bridge) sendWechatToLast(text string) {
 	for _, chunk := range splitLongMessage(text, maxWeChatMsgLen) {
 		b.wechatClient.SendMessage(ct.FromID, ct.ContextToken, chunk)
 	}
+}
+
+func (b *Bridge) resetSendBudget() {
+	b.mu.Lock()
+	b.sendBudget = b.config.Wechat.GetSendBudgetLimit()
+	b.bufferMode = false
+	b.msgBuffer = nil
+	b.pendingText.Reset()
+	b.mu.Unlock()
+}
+
+func (b *Bridge) addToBufferLocked(text string, isPerm bool) {
+	maxBuf := b.config.Wechat.GetMaxBufferedMessages()
+	for len(b.msgBuffer) >= maxBuf {
+		evicted := false
+		for i, m := range b.msgBuffer {
+			if !m.isPerm {
+				b.msgBuffer = append(b.msgBuffer[:i], b.msgBuffer[i+1:]...)
+				evicted = true
+				break
+			}
+		}
+		if !evicted {
+			return
+		}
+	}
+	b.msgBuffer = append(b.msgBuffer, bufferedMessage{text: text, isPerm: isPerm})
+}
+
+func (b *Bridge) flushMessageBuffer(msg wechat.Message) {
+	b.mu.Lock()
+	if !b.bufferMode || len(b.msgBuffer) == 0 {
+		b.mu.Unlock()
+		return
+	}
+	msgs := b.msgBuffer
+	b.msgBuffer = nil
+	b.bufferMode = false
+	b.mu.Unlock()
+
+	var sb strings.Builder
+	for i, bm := range msgs {
+		if i > 0 {
+			sb.WriteString("\n\n---\n\n")
+		}
+		sb.WriteString(fmt.Sprintf("消息%d:\n%s", i+1, bm.text))
+	}
+	b.sendWechat(msg, sb.String())
+}
+
+func (b *Bridge) flushWechatBudgeted() {
+	b.mu.Lock()
+	if b.bufferMode {
+		if b.pendingText.Len() > 0 {
+			b.addToBufferLocked(b.pendingText.String(), false)
+			b.pendingText.Reset()
+		}
+		b.mu.Unlock()
+		return
+	}
+	if b.pendingText.Len() == 0 {
+		b.mu.Unlock()
+		return
+	}
+	text := b.pendingText.String()
+	b.pendingText.Reset()
+	b.mu.Unlock()
+
+	if b.wechatClient == nil {
+		return
+	}
+	ct := b.wechatClient.LastContact()
+	if ct.FromID == "" {
+		return
+	}
+
+	chunks := splitLongMessage(text, maxWeChatMsgLen)
+
+	for i, chunk := range chunks {
+		b.mu.Lock()
+		if b.sendBudget <= 0 {
+			if !b.bufferMode {
+				b.bufferMode = true
+				b.mu.Unlock()
+				b.wechatClient.SendMessage(ct.FromID, ct.ContextToken, b.formatBudgetExhaustedReminder())
+			} else {
+				b.mu.Unlock()
+			}
+			b.mu.Lock()
+			for _, c := range chunks[i:] {
+				b.addToBufferLocked(c, false)
+			}
+			b.mu.Unlock()
+			return
+		}
+		b.sendBudget--
+		b.mu.Unlock()
+		b.wechatClient.SendMessage(ct.FromID, ct.ContextToken, chunk)
+	}
+}
+
+func (b *Bridge) sendWechatBudgetedSingle(text string) bool {
+	b.mu.Lock()
+	if b.bufferMode {
+		b.addToBufferLocked(text, false)
+		b.mu.Unlock()
+		return false
+	}
+	if b.sendBudget <= 0 {
+		b.bufferMode = true
+		b.mu.Unlock()
+		ct := b.wechatClient.LastContact()
+		if ct.FromID != "" {
+			b.wechatClient.SendMessage(ct.FromID, ct.ContextToken, b.formatBudgetExhaustedReminder())
+		}
+		b.mu.Lock()
+		b.addToBufferLocked(text, false)
+		b.mu.Unlock()
+		return false
+	}
+	b.sendBudget--
+	b.mu.Unlock()
+
+	if b.wechatClient == nil {
+		return false
+	}
+	ct := b.wechatClient.LastContact()
+	if ct.FromID == "" {
+		return false
+	}
+	b.wechatClient.SendMessage(ct.FromID, ct.ContextToken, text)
+	return true
+}
+
+func (b *Bridge) sendWechatBudgetedPerm(text string) bool {
+	b.mu.Lock()
+	if b.bufferMode {
+		b.addToBufferLocked(text, true)
+		b.mu.Unlock()
+		return false
+	}
+	if b.sendBudget <= 0 {
+		b.bufferMode = true
+		b.mu.Unlock()
+		ct := b.wechatClient.LastContact()
+		if ct.FromID != "" {
+			b.wechatClient.SendMessage(ct.FromID, ct.ContextToken, b.formatBudgetExhaustedReminder())
+		}
+		b.mu.Lock()
+		b.addToBufferLocked(text, true)
+		b.mu.Unlock()
+		return false
+	}
+	b.sendBudget--
+	b.mu.Unlock()
+
+	if b.wechatClient == nil {
+		return false
+	}
+	ct := b.wechatClient.LastContact()
+	if ct.FromID == "" {
+		return false
+	}
+	b.wechatClient.SendMessage(ct.FromID, ct.ContextToken, text)
+	return true
+}
+
+func (b *Bridge) formatBudgetExhaustedReminder() string {
+	cmd := "/"
+	if c := b.config.BotCommandByKey("activate"); c != nil && c.Enabled {
+		cmd = c.Keyword
+	}
+	return fmt.Sprintf("⚠️ 本轮消息额度已用完，回复 `%s` 激活消息窗口继续接收", cmd)
+}
+
+func (b *Bridge) getActivationCommand() string {
+	if cmd := b.config.BotCommandByKey("activate"); cmd != nil && cmd.Enabled {
+		return cmd.Keyword
+	}
+	return "/"
 }
 
 func (b *Bridge) stopTyping() {

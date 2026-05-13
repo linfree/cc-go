@@ -36,8 +36,10 @@ type Client struct {
 	typingTickets map[string]string
 	stopCh        chan struct{}
 	done          chan struct{}
-	stopOnce      sync.Once
-	onContact     func(ContactInfo)
+	stopOnce        sync.Once
+	reconnectStopCh chan struct{}
+	onContact       func(ContactInfo)
+	onTokenUpdate   func(token, baseURL string)
 }
 
 type ContactInfo struct {
@@ -81,6 +83,12 @@ func (c *Client) SetContactCallback(fn func(ContactInfo)) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.onContact = fn
+}
+
+func (c *Client) SetTokenUpdateCallback(fn func(token, baseURL string)) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.onTokenUpdate = fn
 }
 
 func (c *Client) SetToken(token, baseURL string) {

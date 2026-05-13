@@ -8,12 +8,25 @@ interface WechatStatus {
   login_time?: string
   bot_name?: string
   wxid?: string
+  masked_token?: string
+  send_budget?: number
+  budget_limit?: number
+  buffer_mode?: boolean
+  buffered_count?: number
+  last_msg_time?: string
+  next_reminder_time?: string
 }
 
 export default function WechatBind() {
   const [status, setStatus] = useState<WechatStatus>({ connected: false, status: 'unknown' })
   const [qrcodeDataUrl, setQrcodeDataUrl] = useState('')
   const [loading, setLoading] = useState(false)
+  const [now, setNow] = useState(Date.now())
+
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(t)
+  }, [])
 
   const checkStatus = useCallback(async () => {
     try {
@@ -66,6 +79,16 @@ export default function WechatBind() {
 
   const connected = status.connected
 
+  const formatCountdown = (targetISO: string) => {
+    const diff = new Date(targetISO).getTime() - now
+    if (diff <= 0) return '已过期'
+    const h = Math.floor(diff / 3600000)
+    const m = Math.floor((diff % 3600000) / 60000)
+    const s = Math.floor((diff % 60000) / 1000)
+    if (h > 0) return h + '小时' + m + '分' + s + '秒'
+    return m + '分' + s + '秒'
+  }
+
   return (
     <div className="p-8 max-w-[1440px] mx-auto w-full">
       {/* Page Header */}
@@ -111,11 +134,16 @@ export default function WechatBind() {
                       <p className="font-mono text-[12px] text-on-surface-variant">
                         {status.wxid || '未知'}
                       </p>
+                      {status.masked_token && (
+                        <p className="font-mono text-[11px] text-on-surface-variant/60 mt-0.5">
+                          Token: {status.masked_token}
+                        </p>
+                      )}
                     </div>
                   </div>
 
                   {/* Detail grid */}
-                  <div className="grid grid-cols-2 gap-4 mb-6">
+                  <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
                     <div className="p-3 bg-surface-container-low rounded-lg">
                       <p className="font-mono text-[11px] text-on-surface-variant mb-1">登录时间</p>
                       <p className="text-[14px] text-on-surface">
@@ -123,8 +151,30 @@ export default function WechatBind() {
                       </p>
                     </div>
                     <div className="p-3 bg-surface-container-low rounded-lg">
-                      <p className="font-mono text-[11px] text-on-surface-variant mb-1">同步状态</p>
-                      <p className="text-[14px] text-secondary">正常</p>
+                      <p className="font-mono text-[11px] text-on-surface-variant mb-1">最后消息</p>
+                      <p className="text-[14px] text-on-surface">
+                        {status.last_msg_time ? new Date(status.last_msg_time).toLocaleString('zh-CN', { hour12: false }) : '—'}
+                      </p>
+                    </div>
+                    <div className="p-3 bg-surface-container-low rounded-lg">
+                      <p className="font-mono text-[11px] text-on-surface-variant mb-1">消息通道</p>
+                      <p className="text-[14px] text-on-surface">
+                        剩余 {status.send_budget ?? '—'} / {status.budget_limit ?? '—'}
+                      </p>
+                    </div>
+                    <div className="p-3 bg-surface-container-low rounded-lg">
+                      <p className="font-mono text-[11px] text-on-surface-variant mb-1">缓存队列</p>
+                      <p className="text-[14px] text-on-surface">
+                        {status.buffer_mode
+                          ? status.buffered_count != null ? status.buffered_count + ' 条' : '缓冲中'
+                          : status.buffered_count != null ? status.buffered_count + ' 条' : '正常'}
+                      </p>
+                    </div>
+                    <div className="p-3 bg-surface-container-low rounded-lg">
+                      <p className="font-mono text-[11px] text-on-surface-variant mb-1">下次登录提醒</p>
+                      <p className="text-[14px] text-on-surface">
+                        {status.next_reminder_time ? formatCountdown(status.next_reminder_time) : '—'}
+                      </p>
                     </div>
                   </div>
 

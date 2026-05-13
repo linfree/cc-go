@@ -15,12 +15,15 @@ export const api = {
   getStats: () => request('/stats'),
   getQRCode: () => request('/wechat/qrcode'),
   getWechatStatus: () => request('/wechat/status'),
+  updateWechatSettings: (data: Record<string, unknown>) =>
+    request('/wechat/settings', { method: 'PUT', body: JSON.stringify(data) }),
   disconnectWechat: () => request('/wechat/disconnect', { method: 'POST' }),
   getClaudePath: () => request('/claude/path'),
   setClaudePath: (path: string) =>
     request('/claude/path', { method: 'POST', body: JSON.stringify({ path }) }),
   autoDetectClaude: () => request('/claude/auto-detect', { method: 'POST' }),
   getSessions: () => request('/sessions'),
+  syncSessions: () => request('/sync', { method: 'POST' }),
   getActiveSession: () => request('/sessions/active'),
   getSession: (id: string) => request(`/sessions/${id}`),
   getSessionHistory: (id: string) => request(`/sessions/${id}/history`),
@@ -34,6 +37,8 @@ export const api = {
     request(`/sessions/${id}/permission`, { method: 'POST', body: JSON.stringify({ request_id: requestID, allow, ...(answer ? { answer } : {}) }) }),
   pendingPermissions: (id: string) => request(`/sessions/${id}/permissions/pending`),
   stopSession: (id: string) => request(`/sessions/${id}/stop`, { method: 'POST' }),
+  renameSession: (id: string, name: string) =>
+    request(`/sessions/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) }),
   deleteSession: (id: string) => request(`/sessions/${id}`, { method: 'DELETE' }),
   getPushTypes: () => request('/push/types'),
   getPushSettings: () => request('/push/settings'),

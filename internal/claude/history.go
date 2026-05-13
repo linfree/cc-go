@@ -40,6 +40,7 @@ type HistorySession struct {
 	ProjectPath  string `json:"project_path"`
 	FilePath     string `json:"file_path"`
 	GitBranch    string `json:"git_branch"`
+	Model        string `json:"model"`
 }
 
 type dirEntryInfo struct {
@@ -146,7 +147,7 @@ func refreshCache() ([]HistorySession, error) {
 			// Extract real cwd from JSONL content (avoids DecodeProjectName encoding loss,
 			// e.g. G--dev-AI-plant-explorer → G:\dev\AI\plant-explorer instead of plant_explorer)
 			projectPath := fallbackPath
-			firstPrompt, msgCount, created, modified, gitBranch, isSidechain := scanSessionFile(jsonlPath, &projectPath)
+			firstPrompt, msgCount, created, modified, gitBranch, model, isSidechain := scanSessionFile(jsonlPath, &projectPath)
 			if isSidechain {
 				continue
 			}
@@ -160,6 +161,7 @@ func refreshCache() ([]HistorySession, error) {
 				ProjectPath:  projectPath,
 				FilePath:     jsonlPath,
 				GitBranch:    gitBranch,
+				Model:        model,
 			})
 		}
 	}
@@ -186,7 +188,7 @@ func InvalidateSessionCache() {
 	cache.expiresAt = time.Time{}
 }
 
-func scanSessionFile(path string, outProjectPath *string) (firstPrompt string, msgCount int, created, modified, gitBranch string, isSidechain bool) {
+func scanSessionFile(path string, outProjectPath *string) (firstPrompt string, msgCount int, created, modified, gitBranch, model string, isSidechain bool) {
 	info, err := os.Stat(path)
 	if err == nil {
 		created = info.ModTime().Format(time.RFC3339)
@@ -195,7 +197,7 @@ func scanSessionFile(path string, outProjectPath *string) (firstPrompt string, m
 
 	f, err := os.Open(path)
 	if err != nil {
-		return "", 0, created, modified, "", false
+		return "", 0, created, modified, "", "", false
 	}
 	defer f.Close()
 
@@ -224,6 +226,14 @@ func scanSessionFile(path string, outProjectPath *string) (firstPrompt string, m
 			gitBranch = gb
 		}
 
+		// Extract model from last non-synthetic assistant message
+		if t == "assistant" {
+			if msg, ok := raw["message"].(map[string]interface{}); ok {
+				if m, ok := msg["model"].(string); ok && m != "" && !strings.Contains(strings.ToLower(m), "synthetic") {
+					model = m
+				}
+			}
+		}
 		// Extract real cwd from JSONL to fix DecodeProjectName encoding bugs.
 		// Use only the FIRST cwd — it's the original project directory.
 		// Subsequent cwds may reflect cd commands and are not the real project root.
@@ -279,7 +289,7 @@ func scanSessionFile(path string, outProjectPath *string) (firstPrompt string, m
 		modified = lastTS
 	}
 
-	return firstPrompt, msgCount, created, modified, gitBranch, isSidechain
+	return firstPrompt, msgCount, created, modified, gitBranch, model, isSidechain
 }
 
 func ReadHistory(filePath string) ([]HistoryMessage, error) {

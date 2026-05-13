@@ -22,6 +22,12 @@ interface Settings {
   auto_find_claude?: boolean
   permission_mode?: string
   claude_env_vars?: string
+  wechat?: {
+    send_budget_limit: number
+    max_buffered_messages: number
+    activation_warning_hours: number
+    activation_reminder_minutes: number
+  }
 }
 
 interface ClaudeInfo {
@@ -33,6 +39,7 @@ interface ClaudeInfo {
 const tabs = [
   { id: 'general', icon: 'tune', label: '通用设置' },
   { id: 'cli', icon: 'terminal', label: 'Claude CLI' },
+  { id: 'wechat', icon: 'chat', label: '微信' },
   { id: 'notifications', icon: 'notifications', label: '通知' },
   { id: 'commands', icon: 'smart_toy', label: '机器人指令' },
 ]
@@ -68,6 +75,9 @@ export default function Settings() {
     setSaving(true)
     try {
       await api.updateSettings(settings as Record<string, unknown>)
+      if (settings.wechat) {
+        await api.updateWechatSettings(settings.wechat as Record<string, unknown>)
+      }
     } catch {
       // ignore
     } finally {
@@ -128,7 +138,7 @@ export default function Settings() {
 
   const handleKeywordSave = async (cmdKey: string) => {
     const cmd = commands.find(c => c.key === cmdKey)
-    if (!cmd || !cmd.keyword.startsWith('/') || cmd.keyword === '/') {
+    if (!cmd || !cmd.keyword.startsWith('/') || cmd.keyword.length <= 1) {
       api.getBotCommands().then(data => setCommands(data.commands || []))
       return
     }
@@ -305,6 +315,82 @@ export default function Settings() {
                     spellCheck={false}
                     className="w-full bg-surface-container-lowest border border-outline-variant rounded-lg px-4 py-3 font-mono text-[13px] text-on-surface placeholder:text-on-surface-variant/30 focus:outline-none focus:border-primary resize-y leading-relaxed"
                   />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* WeChat */}
+          {activeTab === 'wechat' && (
+            <div className="bg-surface-container border border-outline-variant rounded-lg p-6">
+              <h3 className="text-[20px] font-semibold text-primary mb-2">微信消息设置</h3>
+              <p className="text-[13px] text-on-surface-variant mb-6">
+                管理微信机器人的消息发送限制、缓存策略和激活机制。
+              </p>
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[13px] text-on-surface-variant mb-2">每轮消息上限</label>
+                    <input
+                      type="number"
+                      min={4}
+                      max={7}
+                      value={settings.wechat?.send_budget_limit ?? 7}
+                      onChange={e => setSettings({
+                        ...settings,
+                        wechat: { ...(settings.wechat || {} as any), send_budget_limit: parseInt(e.target.value) || 7 }
+                      })}
+                      className="w-full bg-surface-container-lowest border border-outline-variant rounded px-3 py-2 font-mono text-[13px] text-on-surface focus:outline-none focus:border-primary"
+                    />
+                    <p className="text-[11px] text-on-surface-variant mt-1">用户每次发消息后，机器人可回复的最大消息条数 (4-7)</p>
+                  </div>
+                  <div>
+                    <label className="block text-[13px] text-on-surface-variant mb-2">最大缓存消息</label>
+                    <input
+                      type="number"
+                      min={100}
+                      max={1000}
+                      value={settings.wechat?.max_buffered_messages ?? 100}
+                      onChange={e => setSettings({
+                        ...settings,
+                        wechat: { ...(settings.wechat || {} as any), max_buffered_messages: parseInt(e.target.value) || 100 }
+                      })}
+                      className="w-full bg-surface-container-lowest border border-outline-variant rounded px-3 py-2 font-mono text-[13px] text-on-surface focus:outline-none focus:border-primary"
+                    />
+                    <p className="text-[11px] text-on-surface-variant mt-1">超出上限后缓存的消息数量上限，超过后旧消息会被驱逐 (100-1000)</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[13px] text-on-surface-variant mb-2">登录提醒 (小时)</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={22}
+                      value={settings.wechat?.activation_warning_hours ?? 21}
+                      onChange={e => setSettings({
+                        ...settings,
+                        wechat: { ...(settings.wechat || {} as any), activation_warning_hours: parseInt(e.target.value) || 21 }
+                      })}
+                      className="w-full bg-surface-container-lowest border border-outline-variant rounded px-3 py-2 font-mono text-[13px] text-on-surface focus:outline-none focus:border-primary"
+                    />
+                    <p className="text-[11px] text-on-surface-variant mt-1">登录后多少小时开始发送登录提醒 (1-22)</p>
+                  </div>
+                  <div>
+                    <label className="block text-[13px] text-on-surface-variant mb-2">提醒间隔 (分钟)</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={60}
+                      value={settings.wechat?.activation_reminder_minutes ?? 60}
+                      onChange={e => setSettings({
+                        ...settings,
+                        wechat: { ...(settings.wechat || {} as any), activation_reminder_minutes: parseInt(e.target.value) || 60 }
+                      })}
+                      className="w-full bg-surface-container-lowest border border-outline-variant rounded px-3 py-2 font-mono text-[13px] text-on-surface focus:outline-none focus:border-primary"
+                    />
+                    <p className="text-[11px] text-on-surface-variant mt-1">登录提醒的重复间隔 (1-60)</p>
+                  </div>
                 </div>
               </div>
             </div>

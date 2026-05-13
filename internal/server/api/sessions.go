@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"sort"
+	"path/filepath"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -47,7 +47,13 @@ func registerClaudeRoutes(r *gin.RouterGroup, st *store.Store, br *bridge.Bridge
 var startTime = time.Now()
 
 func registerSessionRoutes(r *gin.RouterGroup, st *store.Store, br *bridge.Bridge) {
+	r.POST("/sync", func(c *gin.Context) {
+		br.SyncSessions()
+		c.JSON(http.StatusOK, gin.H{"status": "synced"})
+	})
+
 	r.GET("/stats", func(c *gin.Context) {
+
 		historySessions, _ := claude.DiscoverSessions()
 		activeID := br.ActiveSessionID()
 
@@ -80,39 +86,41 @@ func registerSessionRoutes(r *gin.RouterGroup, st *store.Store, br *bridge.Bridg
 	})
 
 	r.GET("/sessions", func(c *gin.Context) {
-		historySessions, _ := claude.DiscoverSessions()
+		storeSessions, err := st.ListSessions()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
 		activeID := br.ActiveSessionID()
 		var result []gin.H
-		for _, hs := range historySessions {
-			status := "stopped"
-			if hs.ID == activeID {
+		for _, s := range storeSessions {
+			status := s.Status
+			if s.ID == activeID {
 				status = "active"
 			}
-			// Try to get model from store
-			storeSess, _ := st.GetSession(hs.ID)
-			model := ""
-			if storeSess != nil {
-				model = storeSess.Model
+			name := s.Name
+			if name == "" {
+				name = s.WorkDir
 			}
-			result = append(result, gin.H{
-				"id":            hs.ID,
-				"name":          hs.FirstPrompt,
-				"work_dir":      hs.ProjectPath,
-				"status":        status,
-				"message_count": hs.MessageCount,
-				"created":       hs.Created,
-				"modified":      hs.Modified,
-				"history_path":  hs.FilePath,
-				"git_branch":    hs.GitBranch,
-				"model":         model,
-			})
+				created := s.CreatedAt.Format(time.RFC3339)
+				modified := s.LastActiveAt.Format(time.RFC3339)
+				result = append(result, gin.H{
+					"seq":           s.Seq,
+					"id":            s.ID,
+					"name":          name,
+					"work_dir":      s.WorkDir,
+					"status":        status,
+					"message_count": s.MessageCount,
+					"created":       created,
+					"modified":      modified,
+					"history_path":  s.HistoryPath,
+					"git_branch":    s.GitBranch,
+					"model":         s.Model,
+				})
 		}
 		if result == nil {
 			result = []gin.H{}
 		}
-		sort.Slice(result, func(i, j int) bool {
-			return result[i]["modified"].(string) > result[j]["modified"].(string)
-		})
 		c.JSON(http.StatusOK, result)
 	})
 
@@ -122,14 +130,28 @@ func registerSessionRoutes(r *gin.RouterGroup, st *store.Store, br *bridge.Bridg
 			c.JSON(http.StatusOK, gin.H{"active": nil})
 			return
 		}
+		// Try store first, fall back to JSONL discovery
+		if storeSess, _ := st.GetSession(activeID); storeSess != nil {
+			c.JSON(http.StatusOK, gin.H{"active": gin.H{
+				"id":         storeSess.ID,
+				"name":       storeSess.Name,
+				"work_dir":   storeSess.WorkDir,
+				"status":     storeSess.Status,
+				"created":    storeSess.CreatedAt.Format(time.RFC3339),
+				"modified":   storeSess.LastActiveAt.Format(time.RFC3339),
+				"git_branch": storeSess.GitBranch,
+			}})
+			return
+		}
 		hs := claude.FindSession(activeID)
 		if hs == nil {
 			c.JSON(http.StatusOK, gin.H{"active": nil})
 			return
 		}
+		name := hs.FirstPrompt
 		c.JSON(http.StatusOK, gin.H{"active": gin.H{
 			"id":         hs.ID,
-			"name":       hs.FirstPrompt,
+			"name":       name,
 			"work_dir":   hs.ProjectPath,
 			"created":    hs.Created,
 			"modified":   hs.Modified,
@@ -153,14 +175,30 @@ func registerSessionRoutes(r *gin.RouterGroup, st *store.Store, br *bridge.Bridg
 
 	r.GET("/sessions/:id", func(c *gin.Context) {
 		id := c.Param("id")
+		status := "stopped"
+		if br.ActiveSessionID() == id {
+			status = "active"
+		}
+		// Try store first (covers new sessions not yet on disk)
+		if storeSess, _ := st.GetSession(id); storeSess != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"id":            storeSess.ID,
+				"name":          storeSess.Name,
+				"work_dir":      storeSess.WorkDir,
+				"status":        status,
+				"created":       storeSess.CreatedAt.Format(time.RFC3339),
+				"modified":      storeSess.LastActiveAt.Format(time.RFC3339),
+				"git_branch":    storeSess.GitBranch,
+				"message_count": storeSess.MessageCount,
+				"model":         storeSess.Model,
+			})
+			return
+		}
+		// Fall back to JSONL discovery
 		hs := claude.FindSession(id)
 		if hs == nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "session not found"})
 			return
-		}
-		status := "stopped"
-		if br.ActiveSessionID() == id {
-			status = "active"
 		}
 		c.JSON(http.StatusOK, gin.H{
 			"id":         hs.ID,
@@ -216,6 +254,18 @@ func registerSessionRoutes(r *gin.RouterGroup, st *store.Store, br *bridge.Bridg
 			c.JSON(http.StatusNotFound, gin.H{"error": "session not found"})
 			return
 		}
+			// Sync latest data from JSONL
+			if ss, _ := st.GetSession(id); ss != nil {
+				if hs.Model != "" {
+					st.UpdateSessionField(id, "model", hs.Model)
+				}
+				if hs.GitBranch != "" {
+					st.UpdateSessionField(id, "git_branch", hs.GitBranch)
+				}
+				if hs.MessageCount > 0 {
+					st.UpdateSessionField(id, "message_count", hs.MessageCount)
+				}
+			}
 		if err := checkWorkDir(hs.ProjectPath); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "工作目录不存在或无法访问: " + hs.ProjectPath})
 			return
@@ -251,8 +301,34 @@ func registerSessionRoutes(r *gin.RouterGroup, st *store.Store, br *bridge.Bridg
 	})
 
 	r.DELETE("/sessions/:id", func(c *gin.Context) {
-		st.DeleteSession(c.Param("id"))
+		id := c.Param("id")
+		st.DeleteSession(id)
+		// Remove the actual JSONL file from disk
+		if hs := claude.FindSession(id); hs != nil {
+			os.Remove(hs.FilePath)
+			dir := filepath.Dir(hs.FilePath)
+			if entries, err := os.ReadDir(dir); err == nil && len(entries) == 0 {
+				os.Remove(dir)
+			}
+		}
+		claude.InvalidateSessionCache()
 		c.JSON(http.StatusOK, gin.H{"status": "deleted"})
+	})
+
+	r.PATCH("/sessions/:id", func(c *gin.Context) {
+		id := c.Param("id")
+		var req struct {
+			Name string `json:"name"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil || req.Name == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "name is required"})
+			return
+		}
+		if err := st.UpdateSessionName(id, req.Name); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"status": "renamed"})
 	})
 }
 

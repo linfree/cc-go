@@ -88,25 +88,41 @@ export default function SessionChat() {
   const scrollRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const nearBottomRef = useRef(true)
+  const forceScrollRef = useRef(false)
   const msgCountRef = useRef(0)
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [showScrollBtn, setShowScrollBtn] = useState(false)
 
   // Track scroll position
   const handleScroll = useCallback(() => {
     const el = scrollRef.current
     if (!el) return
     const threshold = 80
-    nearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < threshold
+    const near = el.scrollHeight - el.scrollTop - el.clientHeight < threshold
+    nearBottomRef.current = near
+    setShowScrollBtn(!near)
   }, [])
 
-  // Auto-scroll only when near bottom, deferred until DOM paints
+  // Auto-scroll when near bottom or forced (user sent a message)
   const scrollToBottom = useCallback(() => {
-    if (!nearBottomRef.current || !scrollRef.current) return
+    if (!scrollRef.current) return
+    if (!nearBottomRef.current && !forceScrollRef.current) return
     requestAnimationFrame(() => {
-      if (nearBottomRef.current && scrollRef.current) {
+      if (!scrollRef.current) return
+      if (nearBottomRef.current || forceScrollRef.current) {
         scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+        forceScrollRef.current = false
+        setShowScrollBtn(false)
       }
     })
+  }, [])
+
+  const scrollToBottomManual = useCallback(() => {
+    if (!scrollRef.current) return
+    nearBottomRef.current = true
+    forceScrollRef.current = true
+    scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+    setShowScrollBtn(false)
   }, [])
 
   // Fetch session info + history
@@ -186,6 +202,7 @@ export default function SessionChat() {
         const arr = data || []
         if (arr.length !== msgCountRef.current) {
           msgCountRef.current = arr.length
+          forceScrollRef.current = true
           setMessages(arr)
         }
       }).catch(() => {})
@@ -254,6 +271,7 @@ export default function SessionChat() {
       const arr = data || []
       msgCountRef.current = arr.length
       nearBottomRef.current = true
+      forceScrollRef.current = true
       setMessages(arr)
     } catch (err) {
       console.error('Failed to send message:', err)
@@ -473,11 +491,12 @@ export default function SessionChat() {
       </div>
 
       {/* Chat area */}
-      <div
-        ref={scrollRef}
-        onScroll={handleScroll}
-        className="flex-1 overflow-y-auto bg-surface-container-lowest p-6"
-      >
+      <div className="flex-1 relative bg-surface-container-lowest overflow-hidden">
+        <div
+          ref={scrollRef}
+          onScroll={handleScroll}
+          className="h-full overflow-y-auto p-6"
+        >
         {chatMessages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-on-surface-variant/50 gap-2">
             <span className="material-symbols-outlined text-[48px]">chat_bubble_outline</span>
@@ -585,6 +604,17 @@ export default function SessionChat() {
               </div>
             ))}
           </div>
+        )}
+        </div>
+
+        {/* Scroll-to-bottom floating button */}
+        {showScrollBtn && (
+          <button
+            onClick={scrollToBottomManual}
+            className="absolute bottom-4 right-6 w-10 h-10 rounded-full bg-secondary/90 hover:bg-secondary text-on-secondary shadow-lg flex items-center justify-center transition-all z-10"
+          >
+            <span className="material-symbols-outlined text-[20px]">keyboard_arrow_down</span>
+          </button>
         )}
       </div>
 

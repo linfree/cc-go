@@ -101,7 +101,7 @@ func (u *windowsUI) startWebviewLoop() {
 			u.mu.Unlock()
 
 			w.SetTitle("cc-go")
-			w.SetSize(1200, 800, webview2.HintNone)
+			w.SetSize(1400, 900, webview2.HintNone)
 			w.Navigate(fmt.Sprintf("http://localhost:%d", u.port))
 
 			// w.Run blocks until the window is destroyed (user clicks X

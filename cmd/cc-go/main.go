@@ -54,9 +54,29 @@ func main() {
 		cfg.Wechat.LastContextToken = ci.ContextToken
 		cfg.Save()
 	})
+
 	if cfg.Wechat.BotToken != "" {
 		wc.Start()
-		wc.StartReconnectTimer(wechat.DefaultReconnectConfig)
+	}
+
+	reconnectCfg := wechat.ReconnectConfig{
+		SessionDuration:           24 * time.Hour,
+		ActivationWarningHours:    cfg.Wechat.GetActivationWarningHours(),
+		ActivationReminderMinutes: cfg.Wechat.GetActivationReminderMinutes(),
+		ForceBefore:               30 * time.Minute,
+	}
+	wc.SetTokenUpdateCallback(func(token, baseURL string) {
+		cfg.Wechat.BotToken = token
+		if baseURL != "" {
+			cfg.Wechat.BaseURL = baseURL
+		}
+		cfg.Wechat.LoginTime = time.Now().Format(time.RFC3339)
+		cfg.Save()
+		wc.SetStatus(wechat.StatusConnected)
+		wc.StartReconnectTimer(reconnectCfg)
+	})
+	if cfg.Wechat.BotToken != "" {
+		wc.StartReconnectTimer(reconnectCfg)
 	}
 
 	br := bridge.New(cfg, st)
