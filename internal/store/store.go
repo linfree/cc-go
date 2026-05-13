@@ -71,15 +71,15 @@ const tableDef = `CREATE TABLE IF NOT EXISTS sessions (
 const allCols = `seq, id, name, work_dir, model, status, claude_pid, created_at, last_active_at, history_path, message_count, git_branch`
 
 func (s *Store) migrate() error {
-	var oldSchema bool
 	row := s.db.QueryRow(`SELECT sql FROM sqlite_master WHERE type='table' AND name='sessions'`)
 	var schema string
 	if err := row.Scan(&schema); err != nil {
+		// Table doesn't exist yet — create it.
+		_, err := s.db.Exec(tableDef)
 		return err
 	}
-	oldSchema = strings.Contains(schema, "id TEXT PRIMARY KEY")
 
-	if oldSchema {
+	if strings.Contains(schema, "id TEXT PRIMARY KEY") {
 		statements := []string{
 			tableDef,
 			`INSERT INTO sessions (seq, id, name, work_dir, model, status, claude_pid, created_at, last_active_at, history_path)
@@ -95,14 +95,7 @@ func (s *Store) migrate() error {
 	} else if !strings.Contains(schema, "message_count") {
 		s.db.Exec(`ALTER TABLE sessions ADD COLUMN message_count INTEGER NOT NULL DEFAULT 0`)
 		s.db.Exec(`ALTER TABLE sessions ADD COLUMN git_branch TEXT NOT NULL DEFAULT ''`)
-	} else {
-		_, err := s.db.Exec(tableDef)
-		if err != nil {
-			return err
-		}
 	}
-	s.db.Exec(`UPDATE sessions SET created_at = CURRENT_TIMESTAMP WHERE created_at < '1900-01-01'`)
-	s.db.Exec(`UPDATE sessions SET last_active_at = CURRENT_TIMESTAMP WHERE last_active_at < '1900-01-01'`)
 	return nil
 }
 
