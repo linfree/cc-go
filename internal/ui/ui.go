@@ -3,7 +3,6 @@ package ui
 import (
 	"os/exec"
 	"runtime"
-	"syscall"
 )
 
 // UI wraps platform-specific desktop UI behaviour.
@@ -27,8 +26,7 @@ func openBrowser(url string) {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "windows":
-		cmd = exec.Command("cmd", "/c", "start", url)
-		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+		cmd = openBrowserCmd(url)
 	case "darwin":
 		cmd = exec.Command("open", url)
 	default:

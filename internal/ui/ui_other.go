@@ -4,9 +4,14 @@ package ui
 
 import (
 	"fmt"
+	"os/exec"
 
 	"github.com/getlantern/systray"
 )
+
+func openBrowserCmd(url string) *exec.Cmd {
+	return nil
+}
 
 type otherUI struct {
 	port  int

@@ -4,8 +4,10 @@ package ui
 
 import (
 	"fmt"
+	"os/exec"
 	"runtime"
 	"sync"
+	"syscall"
 
 	"github.com/getlantern/systray"
 	"github.com/jchv/go-webview2"
@@ -138,4 +140,10 @@ func (u *windowsUI) Quit() {
 	case u.quitC <- struct{}{}:
 	default:
 	}
+}
+
+func openBrowserCmd(url string) *exec.Cmd {
+	cmd := exec.Command("cmd", "/c", "start", url)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	return cmd
 }
