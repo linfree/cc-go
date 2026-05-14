@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"math/rand"
 	"net/http"
 	"sync"
@@ -308,6 +309,8 @@ func (c *Client) pollLoop() {
 		}
 		msgs, newBuf, err := c.PollMessages(35000)
 		if err != nil {
+			log.Printf("[wechat] poll error: %v", err)
+			c.SetStatus(StatusDisconnected)
 			time.Sleep(2 * time.Second)
 			continue
 		}

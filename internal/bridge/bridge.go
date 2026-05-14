@@ -542,7 +542,10 @@ func (b *Bridge) StartSession(opts claude.StartOptions) error {
 	sessionID := opts.ResumeID
 	b.activeSessID = sessionID
 
-	logger, _ := claude.NewSessionLogger(sessionID)
+	var logger *claude.SessionLogger
+	if sessionID != "" {
+		logger, _ = claude.NewSessionLogger(sessionID)
+	}
 	b.activeLogger = logger
 
 	if sessionID != "" {
@@ -700,6 +703,16 @@ func (b *Bridge) readClaudeEvents(sess *claude.Session, logger *claude.SessionLo
 			})
 		}
 	}
+	// Session event stream ended — Claude process exited
+	sid := b.activeSessID
+	status := sess.Status
+	b.StopSession()
+	if status == claude.StatusError {
+		b.sendWechatBudgetedSingle("Claude 会话异常退出")
+	} else {
+		b.sendWechatBudgetedSingle("Claude 会话已结束")
+	}
+	b.emit(WSEvent{Event: "session_status_changed", SessionID: sid, Status: "stopped"})
 }
 
 func (b *Bridge) formatPermissionWeChat(count int, toolName string, input map[string]interface{}) string {
