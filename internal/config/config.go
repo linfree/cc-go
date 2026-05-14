@@ -29,6 +29,7 @@ type Config struct {
 type WechatConfig struct {
 	BotToken                  string `json:"bot_token"`
 	BaseURL                   string `json:"base_url"`
+	CDNBaseUrl                string `json:"cdn_base_url"`
 	LoginTime                 string `json:"login_time"`
 	LastFromID                string `json:"last_from_id"`
 	LastContextToken          string `json:"last_context_token"`
@@ -61,6 +62,13 @@ func (w WechatConfig) GetActivationReminderMinutes() int {
 		return 60
 	}
 	return w.ActivationReminderMinutes
+}
+
+func (w WechatConfig) GetCDNBaseUrl() string {
+	if w.CDNBaseUrl == "" {
+		return "https://novac2c.cdn.weixin.qq.com/c2c"
+	}
+	return w.CDNBaseUrl
 }
 
 func (w WechatConfig) Normalize() WechatConfig {

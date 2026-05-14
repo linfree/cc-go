@@ -22,7 +22,7 @@ func main() {
 		log.Fatal("未找到最近联系人，请先在微信给机器人发一条消息")
 	}
 
-	client := wechat.NewClient(cfg.Wechat.BaseURL, cfg.Wechat.BotToken, wechat.ParseLoginTime(cfg.Wechat.LoginTime))
+	client := wechat.NewClient(cfg.Wechat.BaseURL, cfg.Wechat.BotToken, wechat.ParseLoginTime(cfg.Wechat.LoginTime), cfg.Wechat.GetCDNBaseUrl())
 
 	toID := cfg.Wechat.LastFromID
 	ctxToken := cfg.Wechat.LastContextToken

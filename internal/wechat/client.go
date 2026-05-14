@@ -9,11 +9,21 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 )
 
 const DefaultBaseURL = "https://ilinkai.weixin.qq.com"
+const DefaultCDNBaseURL = "https://novac2c.cdn.weixin.qq.com/c2c"
+
+const (
+	MediaTypeImage = 1
+	MediaTypeVideo = 2
+	MediaTypeFile  = 3
+)
 
 type Status string
 
@@ -25,18 +35,20 @@ const (
 )
 
 type Client struct {
-	baseURL       string
-	botToken      string
-	loginTime     time.Time
-	status        Status
-	mu            sync.RWMutex
-	httpClient    *http.Client
-	msgCh         chan Message
-	getUpdatesBuf string
-	lastContact   ContactInfo
-	typingTickets map[string]string
-	stopCh        chan struct{}
-	done          chan struct{}
+	baseURL         string
+	botToken        string
+	loginTime       time.Time
+	cdnBaseURL      string
+	status          Status
+	mu              sync.RWMutex
+	httpClient      *http.Client
+	cdnHttpClient   *http.Client
+	msgCh           chan Message
+	getUpdatesBuf   string
+	lastContact     ContactInfo
+	typingTickets   map[string]string
+	stopCh          chan struct{}
+	done            chan struct{}
 	stopOnce        sync.Once
 	reconnectStopCh chan struct{}
 	onContact       func(ContactInfo)
@@ -48,13 +60,18 @@ type ContactInfo struct {
 	ContextToken string
 }
 
-func NewClient(baseURL, botToken string, loginTime time.Time) *Client {
+func NewClient(baseURL, botToken string, loginTime time.Time, cdnBaseURL string) *Client {
+	if cdnBaseURL == "" {
+		cdnBaseURL = DefaultCDNBaseURL
+	}
 	return &Client{
 		baseURL:       baseURL,
 		botToken:      botToken,
 		loginTime:     loginTime,
+		cdnBaseURL:    cdnBaseURL,
 		status:        StatusDisconnected,
 		httpClient:    &http.Client{Timeout: 60 * time.Second},
+		cdnHttpClient: &http.Client{Timeout: 5 * time.Minute},
 		msgCh:         make(chan Message, 100),
 		typingTickets: make(map[string]string),
 		stopCh:        make(chan struct{}),
@@ -140,12 +157,12 @@ func (c *Client) doRequest(method, path string, bodyData []byte) (map[string]int
 	if base == "" {
 		base = DefaultBaseURL
 	}
-	url := base + "/" + path
+	reqURL := base + "/" + path
 	var body io.Reader
 	if bodyData != nil {
 		body = bytes.NewReader(bodyData)
 	}
-	req, err := http.NewRequest(method, url, body)
+	req, err := http.NewRequest(method, reqURL, body)
 	if err != nil {
 		return nil, err
 	}
@@ -189,7 +206,8 @@ func (c *Client) CheckQRCodeStatus(qrcode string) (bool, string, string, error) 
 	return false, "", "", nil
 }
 
-func (c *Client) SendMessage(toID, contextToken, text string) error {
+// SendMessageItemList sends a message with a custom item_list.
+func (c *Client) SendMessageItemList(toID, contextToken string, itemList []map[string]interface{}) error {
 	clientID := fmt.Sprintf("cc-go-%08x", rand.Uint32())
 	body, _ := json.Marshal(map[string]interface{}{
 		"msg": map[string]interface{}{
@@ -199,14 +217,157 @@ func (c *Client) SendMessage(toID, contextToken, text string) error {
 			"message_type":  2,
 			"message_state": 2,
 			"context_token": contextToken,
-			"item_list": []map[string]interface{}{
-				{"type": 1, "text_item": map[string]string{"text": text}},
-			},
+			"item_list":     itemList,
 		},
 		"base_info": map[string]string{"channel_version": "1.0.2"},
 	})
 	_, err := c.doRequest("POST", "ilink/bot/sendmessage", body)
 	return err
+}
+
+func (c *Client) SendMessage(toID, contextToken, text string) error {
+	return c.SendMessageItemList(toID, contextToken, []map[string]interface{}{
+		{"type": 1, "text_item": map[string]string{"text": text}},
+	})
+}
+
+// --- Media upload methods ---
+
+func (c *Client) GetUploadURL(fileKey string, mediaType int, toUserID string, rawSize int, rawFileMD5 string, fileSize int, aesKeyHex string) (string, error) {
+	body, _ := json.Marshal(map[string]interface{}{
+		"filekey":        fileKey,
+		"media_type":     mediaType,
+		"to_user_id":     toUserID,
+		"rawsize":        rawSize,
+		"rawfilemd5":     rawFileMD5,
+		"filesize":       fileSize,
+		"no_need_thumb":  true,
+		"aeskey":         aesKeyHex,
+		"base_info":      map[string]string{"channel_version": "1.0.2"},
+	})
+	result, err := c.doRequest("POST", "ilink/bot/getuploadurl", body)
+	if err != nil {
+		return "", fmt.Errorf("getuploadurl: %w", err)
+	}
+	uploadParam, _ := result["upload_param"].(string)
+	if uploadParam == "" {
+		return "", fmt.Errorf("getuploadurl returned no upload_param")
+	}
+	return uploadParam, nil
+}
+
+func (c *Client) UploadToCDN(ciphertext []byte, uploadParam, fileKey string) (string, error) {
+	cdnURL := c.cdnBaseURL + "/upload?encrypted_query_param=" + url.QueryEscape(uploadParam) + "&filekey=" + url.QueryEscape(fileKey)
+	req, err := http.NewRequest("PUT", cdnURL, bytes.NewReader(ciphertext))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/octet-stream")
+	resp, err := c.cdnHttpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("cdn upload: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		errMsg := resp.Header.Get("x-error-message")
+		if errMsg == "" {
+			errMsg = fmt.Sprintf("status %d", resp.StatusCode)
+		}
+		return "", fmt.Errorf("cdn upload failed: %s", errMsg)
+	}
+	downloadParam := resp.Header.Get("x-encrypted-param")
+	if downloadParam == "" {
+		return "", fmt.Errorf("cdn upload response missing x-encrypted-param header")
+	}
+	return downloadParam, nil
+}
+
+func (c *Client) UploadFile(filePath string, mediaType int, toUserID string) (*UploadResult, error) {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("read file: %w", err)
+	}
+	rawSize := len(data)
+	rawFileMD5 := fileMD5(data)
+	fileSize := computeCiphertextSize(rawSize)
+
+	rawKey, aesKeyHex, _ := generateAESKey()
+	fileKey := generateFileKey()
+
+	uploadParam, err := c.GetUploadURL(fileKey, mediaType, toUserID, rawSize, rawFileMD5, fileSize, aesKeyHex)
+	if err != nil {
+		return nil, err
+	}
+
+	ciphertext, err := aesEncryptECB(rawKey, data)
+	if err != nil {
+		return nil, fmt.Errorf("encrypt: %w", err)
+	}
+
+	downloadParam, err := c.UploadToCDN(ciphertext, uploadParam, fileKey)
+	if err != nil {
+		return nil, err
+	}
+
+	return &UploadResult{
+		DownloadParam:       downloadParam,
+		AESKeyBase64:        aesKeyToBase64(aesKeyHex),
+		AESKeyHex:           aesKeyHex,
+		FileSize:            rawSize,
+		FileSizeCiphertext: fileSize,
+	}, nil
+}
+
+func makeCDNMedia(result *UploadResult) CDNMedia {
+	return CDNMedia{
+		EncryptQueryParam: result.DownloadParam,
+		AESKey:            result.AESKeyBase64,
+		EncryptType:       1,
+	}
+}
+
+func (c *Client) SendImage(toID, contextToken, filePath string) error {
+	result, err := c.UploadFile(filePath, MediaTypeImage, toID)
+	if err != nil {
+		return err
+	}
+	media := makeCDNMedia(result)
+	return c.SendMessageItemList(toID, contextToken, []map[string]interface{}{
+		{"type": 2, "image_item": map[string]interface{}{
+			"media":    media,
+			"mid_size": result.FileSize,
+		}},
+	})
+}
+
+func (c *Client) SendFile(toID, contextToken, filePath string) error {
+	result, err := c.UploadFile(filePath, MediaTypeFile, toID)
+	if err != nil {
+		return err
+	}
+	media := makeCDNMedia(result)
+	fileName := filepath.Base(filePath)
+	return c.SendMessageItemList(toID, contextToken, []map[string]interface{}{
+		{"type": 4, "file_item": map[string]interface{}{
+			"media":     media,
+			"file_name": fileName,
+			"len":       fmt.Sprintf("%d", result.FileSize),
+		}},
+	})
+}
+
+func (c *Client) SendVideo(toID, contextToken, filePath string) error {
+	result, err := c.UploadFile(filePath, MediaTypeVideo, toID)
+	if err != nil {
+		return err
+	}
+	media := makeCDNMedia(result)
+	return c.SendMessageItemList(toID, contextToken, []map[string]interface{}{
+		{"type": 5, "video_item": map[string]interface{}{
+			"media":      media,
+			"video_size": result.FileSize,
+		}},
+	})
 }
 
 func (c *Client) SendTyping(toID, contextToken string, typing bool) error {

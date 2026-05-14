@@ -12,6 +12,7 @@ import (
 func RegisterRoutes(r *gin.Engine, cfg *config.Config, st *store.Store, br *bridge.Bridge, wc *wechat.Client, hub *ws.Hub) {
 	api := r.Group("/api/v1")
 	registerWechatRoutes(api, cfg, wc, br)
+	registerWechatBotRoutes(api, wc)
 	registerClaudeRoutes(api, st, br)
 	registerSessionRoutes(api, st, br)
 	registerPermissionRoutes(api, br)

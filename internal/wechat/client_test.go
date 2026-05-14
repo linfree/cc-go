@@ -6,7 +6,7 @@ import (
 )
 
 func TestNewClient(t *testing.T) {
-	c := NewClient(DefaultBaseURL, "test-token", time.Now())
+	c := NewClient(DefaultBaseURL, "test-token", time.Now(), "")
 	if c.Status() != StatusDisconnected {
 		t.Error("expected disconnected status")
 	}
@@ -44,7 +44,7 @@ func TestParseMessage(t *testing.T) {
 }
 
 func TestClientHeaders(t *testing.T) {
-	c := NewClient(DefaultBaseURL, "test-token", time.Now())
+	c := NewClient(DefaultBaseURL, "test-token", time.Now(), "")
 	headers := c.makeHeaders()
 	if headers["AuthorizationType"] != "ilink_bot_token" {
 		t.Error("missing AuthorizationType header")
@@ -55,7 +55,7 @@ func TestClientHeaders(t *testing.T) {
 }
 
 func TestSetToken(t *testing.T) {
-	c := NewClient(DefaultBaseURL, "", time.Now())
+	c := NewClient(DefaultBaseURL, "", time.Now(), "")
 	c.SetToken("new-token", "https://custom.url")
 	if c.Token() != "new-token" {
 		t.Errorf("expected new-token, got %s", c.Token())
@@ -63,7 +63,7 @@ func TestSetToken(t *testing.T) {
 }
 
 func TestStatusTransitions(t *testing.T) {
-	c := NewClient(DefaultBaseURL, "", time.Now())
+	c := NewClient(DefaultBaseURL, "", time.Now(), "")
 	if c.Status() != StatusDisconnected {
 		t.Error("expected disconnected initially")
 	}

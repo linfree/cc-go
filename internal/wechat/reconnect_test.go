@@ -22,7 +22,7 @@ func TestReconnectConfig_Defaults(t *testing.T) {
 }
 
 func TestReconnectTimer_DoesNotCrash(t *testing.T) {
-	c := NewClient(DefaultBaseURL, "", time.Now())
+	c := NewClient(DefaultBaseURL, "", time.Now(), "")
 	c.Start()
 	c.SetStatus(StatusConnected)
 	cfg := DefaultReconnectConfig
@@ -35,7 +35,7 @@ func TestReconnectTimer_DoesNotCrash(t *testing.T) {
 }
 
 func TestReconnectTimer_RespectsDisconnected(t *testing.T) {
-	c := NewClient(DefaultBaseURL, "", time.Now())
+	c := NewClient(DefaultBaseURL, "", time.Now(), "")
 	cfg := DefaultReconnectConfig
 	cfg.SessionDuration = 10 * time.Millisecond
 	cfg.ActivationWarningHours = 0
