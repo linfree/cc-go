@@ -102,6 +102,7 @@ func DefaultBotCommands() []BotCommand {
 		{Key: "stop", Keyword: "/stop", Description: "停止当前会话", Enabled: true},
 		{Key: "y", Keyword: "/y", Description: "批准权限请求 (例: /y 或 /y 3 或 /y all)", Enabled: true},
 		{Key: "n", Keyword: "/n", Description: "拒绝权限请求 (例: /n 或 /n 3 或 /n all)", Enabled: true},
+		{Key: "r", Keyword: "/r", Description: "回答提问 (例: /r 是的)", Enabled: true},
 		{Key: "activate", Keyword: "/", Description: "激活消息轮次", Enabled: true},
 		{Key: "relogin", Keyword: "/relogin", Description: "重新登录机器人", Enabled: true},
 	}

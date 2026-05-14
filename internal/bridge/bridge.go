@@ -3,6 +3,7 @@ package bridge
 import (
 	"bytes"
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 	"sync"
@@ -105,6 +106,7 @@ func (b *Bridge) periodicSync() {
 func (b *Bridge) SyncSessions() {
 	sessions, err := claude.DiscoverSessions()
 	if err != nil {
+		log.Printf("[bridge] sync sessions error: %v", err)
 		return
 	}
 	var discovered []struct {
@@ -223,6 +225,7 @@ func (b *Bridge) HandleWechatMessage(msg wechat.Message) {
 	stopCmd := b.config.BotCommandByKeyword("/stop")
 	yCmd := b.config.BotCommandByKeyword("/y")
 	nCmd := b.config.BotCommandByKeyword("/n")
+	rCmd := b.config.BotCommandByKeyword("/r")
 	reloginCmd := b.config.BotCommandByKey("relogin")
 
 	if helpCmd != nil && helpCmd.Enabled && text == helpCmd.Keyword {
@@ -281,8 +284,8 @@ func (b *Bridge) HandleWechatMessage(msg wechat.Message) {
 	}
 
 	// /r <text> — respond to AskUserQuestion with custom answer
-	if strings.HasPrefix(text, "/r ") {
-		after := strings.TrimPrefix(text, "/r ")
+	if rCmd != nil && rCmd.Enabled && strings.HasPrefix(text, rCmd.Keyword+" ") {
+		after := strings.TrimPrefix(text, rCmd.Keyword+" ")
 		b.mu.Lock()
 		idx := -1
 		for i, p := range b.pendingPerms {
@@ -453,7 +456,6 @@ func (b *Bridge) handlePermissionResponse(allow bool, count int, msg wechat.Mess
 	toProcess := b.pendingPerms[:count]
 	b.pendingPerms = b.pendingPerms[count:]
 	sess := b.activeSess
-	remaining := len(b.pendingPerms)
 	b.mu.Unlock()
 	if sess == nil {
 		b.sendWechatBudgetedSingle("会话已结束，无法响应权限请求")
@@ -477,6 +479,9 @@ func (b *Bridge) handlePermissionResponse(allow bool, count int, msg wechat.Mess
 		b.sendWechatBudgetedSingle(fmt.Sprintf("批量%s %d 个权限请求", action, count))
 	}
 
+	b.mu.Lock()
+	remaining := len(b.pendingPerms)
+	b.mu.Unlock()
 	if remaining > 0 {
 		hasAskUser := false
 		b.mu.Lock()
@@ -549,13 +554,15 @@ func (b *Bridge) StartSession(opts claude.StartOptions) error {
 	b.activeLogger = logger
 
 	if sessionID != "" {
-		b.store.InsertSession(&store.Session{
+if err := b.store.InsertSession(&store.Session{
 			ID:      sessionID,
 			Name:    opts.Name,
 			WorkDir: opts.WorkDir,
 			Model:   opts.Model,
 			Status:  "active",
-		})
+		}); err != nil {
+			log.Printf("[bridge] insert session error: %v", err)
+		}
 		b.newSession = nil
 	} else {
 		b.newSession = &store.Session{
@@ -568,14 +575,15 @@ func (b *Bridge) StartSession(opts claude.StartOptions) error {
 
 	go b.readClaudeEvents(sess, logger)
 
-	b.emit(WSEvent{Event: "session_status_changed", SessionID: sessionID, Status: "active"})
-
-	if b.wechatClient != nil && b.config.IsPushEnabled("session_status") {
-		ct := b.wechatClient.LastContact()
-		if ct.FromID != "" {
-			b.wechatClient.SendMessage(ct.FromID, ct.ContextToken,
-				fmt.Sprintf("✅ **已接管会话**\n\n**名称：** %s\n\n**会话ID：** `%s`\n\n**目录：** %s",
-					opts.Name, sessionID, opts.WorkDir))
+	if sessionID != "" {
+		b.emit(WSEvent{Event: "session_status_changed", SessionID: sessionID, Status: "active"})
+		if b.wechatClient != nil && b.config.IsPushEnabled("session_status") {
+			ct := b.wechatClient.LastContact()
+			if ct.FromID != "" {
+				b.wechatClient.SendMessage(ct.FromID, ct.ContextToken,
+					fmt.Sprintf("✅ **已接管会话**\n\n**名称：** %s\n\n**会话ID：** `%s`\n\n**目录：** %s",
+						opts.Name, sessionID, opts.WorkDir))
+			}
 		}
 	}
 	return nil
@@ -600,7 +608,9 @@ func (b *Bridge) readClaudeEvents(sess *claude.Session, logger *claude.SessionLo
 				b.activeSessID = evt.SessionID
 				if b.newSession != nil {
 					b.newSession.ID = evt.SessionID
-					b.store.InsertSession(b.newSession)
+					if err := b.store.InsertSession(b.newSession); err != nil {
+						log.Printf("[bridge] insert session error: %v", err)
+					}
 					b.newSession = nil
 				} else {
 					b.store.UpdateSessionID("", evt.SessionID)
@@ -943,6 +953,10 @@ func (b *Bridge) flushMessageBuffer(msg wechat.Message) {
 		b.mu.Unlock()
 		return
 	}
+	if b.wechatClient == nil || b.wechatClient.Status() != wechat.StatusConnected {
+		b.mu.Unlock()
+		return
+	}
 	msgs := b.msgBuffer
 	b.msgBuffer = nil
 	b.bufferMode = false
@@ -1104,11 +1118,16 @@ func splitLongMessage(text string, maxLen int) []string {
 	if utf8.RuneCountInString(text) <= maxLen {
 		return []string{text}
 	}
+	suffixLen := len(" [999/999]")
+	chunkLen := maxLen - suffixLen
+	if chunkLen < 1 {
+		chunkLen = 1
+	}
 	var chunks []string
 	runes := []rune(text)
-	total := (len(runes) + maxLen - 1) / maxLen
-	for i := 0; i < len(runes); i += maxLen {
-		end := i + maxLen
+	total := (len(runes) + chunkLen - 1) / chunkLen
+	for i := 0; i < len(runes); i += chunkLen {
+		end := i + chunkLen
 		if end > len(runes) {
 			end = len(runes)
 		}
