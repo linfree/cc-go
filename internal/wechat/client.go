@@ -258,7 +258,7 @@ func (c *Client) GetUploadURL(fileKey string, mediaType int, toUserID string, ra
 
 func (c *Client) UploadToCDN(ciphertext []byte, uploadParam, fileKey string) (string, error) {
 	cdnURL := c.cdnBaseURL + "/upload?encrypted_query_param=" + url.QueryEscape(uploadParam) + "&filekey=" + url.QueryEscape(fileKey)
-	req, err := http.NewRequest("PUT", cdnURL, bytes.NewReader(ciphertext))
+	req, err := http.NewRequest("POST", cdnURL, bytes.NewReader(ciphertext))
 	if err != nil {
 		return "", err
 	}
@@ -335,7 +335,7 @@ func (c *Client) SendImage(toID, contextToken, filePath string) error {
 	return c.SendMessageItemList(toID, contextToken, []map[string]interface{}{
 		{"type": 2, "image_item": map[string]interface{}{
 			"media":    media,
-			"mid_size": result.FileSize,
+			"mid_size": result.FileSizeCiphertext,
 		}},
 	})
 }
@@ -365,7 +365,7 @@ func (c *Client) SendVideo(toID, contextToken, filePath string) error {
 	return c.SendMessageItemList(toID, contextToken, []map[string]interface{}{
 		{"type": 5, "video_item": map[string]interface{}{
 			"media":      media,
-			"video_size": result.FileSize,
+			"video_size": result.FileSizeCiphertext,
 		}},
 	})
 }

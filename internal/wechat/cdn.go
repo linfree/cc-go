@@ -73,6 +73,5 @@ func generateFileKey() string {
 }
 
 func aesKeyToBase64(hexKey string) string {
-	b, _ := hex.DecodeString(hexKey)
-	return base64.StdEncoding.EncodeToString(b)
+	return base64.StdEncoding.EncodeToString([]byte(hexKey))
 }
