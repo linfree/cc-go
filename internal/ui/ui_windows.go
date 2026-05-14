@@ -4,13 +4,33 @@ package ui
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"sync"
 	"syscall"
+	"time"
+	"unsafe"
 
 	"github.com/getlantern/systray"
 	"github.com/jchv/go-webview2"
+	"golang.org/x/sys/windows"
+)
+
+var (
+	user32          = windows.NewLazyDLL("user32.dll")
+	procFindWindowW = user32.NewProc("FindWindowW")
+	procSendMessageW = user32.NewProc("SendMessageW")
+	procLoadImageW  = user32.NewProc("LoadImageW")
+)
+
+const (
+	WM_SETICON      = 0x0080
+	ICON_BIG        = 1
+	ICON_SMALL      = 0
+	IMAGE_ICON      = 1
+	LR_LOADFROMFILE = 0x0010
 )
 
 type windowsUI struct {
@@ -18,19 +38,28 @@ type windowsUI struct {
 	icon  []byte
 	quitC chan struct{}
 
-	mu      sync.Mutex
-	webview webview2.WebView
-	showReq chan struct{}
-	started bool
+	mu       sync.Mutex
+	webview  webview2.WebView
+	showReq  chan struct{}
+	started  bool
+	iconPath string
 }
 
 func newPlatformUI(port int, icon []byte) UI {
-	return &windowsUI{
+	u := &windowsUI{
 		port:    port,
 		icon:    icon,
 		quitC:   make(chan struct{}),
 		showReq: make(chan struct{}, 1),
 	}
+	// Write icon to temp file so LoadImageW can load it.
+	if len(icon) > 0 {
+		tmp := filepath.Join(os.TempDir(), "cc-go-icon.ico")
+		if err := os.WriteFile(tmp, icon, 0644); err == nil {
+			u.iconPath = tmp
+		}
+	}
+	return u
 }
 
 func (u *windowsUI) Run(onReady func()) {
@@ -106,6 +135,11 @@ func (u *windowsUI) startWebviewLoop() {
 			w.SetSize(1400, 900, webview2.HintNone)
 			w.Navigate(fmt.Sprintf("http://localhost:%d", u.port))
 
+			// Set window icon from the temp ICO file.
+			if u.iconPath != "" {
+				go setWindowIconFromFile("cc-go", u.iconPath)
+			}
+
 			// w.Run blocks until the window is destroyed (user clicks X
 			// or closeWebview calls w.Destroy from another goroutine).
 			w.Run()
@@ -146,4 +180,31 @@ func openBrowserCmd(url string) *exec.Cmd {
 	cmd := exec.Command("cmd", "/c", "start", url)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	return cmd
+}
+
+func setWindowIconFromFile(title, icoPath string) {
+	titlePtr, _ := windows.UTF16PtrFromString(title)
+	icoPathPtr, _ := windows.UTF16PtrFromString(icoPath)
+
+	for i := 0; i < 50; i++ {
+		hwnd, _, _ := procFindWindowW.Call(0, uintptr(unsafe.Pointer(titlePtr)))
+		if hwnd != 0 {
+			hSmall, _, _ := procLoadImageW.Call(
+				0, uintptr(unsafe.Pointer(icoPathPtr)),
+				IMAGE_ICON, 16, 16, LR_LOADFROMFILE,
+			)
+			hBig, _, _ := procLoadImageW.Call(
+				0, uintptr(unsafe.Pointer(icoPathPtr)),
+				IMAGE_ICON, 256, 256, LR_LOADFROMFILE,
+			)
+			if hSmall != 0 {
+				procSendMessageW.Call(hwnd, WM_SETICON, ICON_SMALL, hSmall)
+			}
+			if hBig != 0 {
+				procSendMessageW.Call(hwnd, WM_SETICON, ICON_BIG, hBig)
+			}
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }
