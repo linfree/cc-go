@@ -463,7 +463,7 @@ export default function SessionList() {
                     className="px-4 py-3 text-right"
                     onClick={e => e.stopPropagation()}
                   >
-                    <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition">
+                    <div className="flex items-center justify-end gap-1 transition">
                       {session.status.toLowerCase() !== 'active' && (
                         <button
                           onClick={() => handleResume(session.id)}
