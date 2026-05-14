@@ -99,5 +99,24 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*
+          body: |
+            ## 下载
+
+            | 平台 | 文件 |
+            |------|------|
+            | Windows | `cc-go-windows-amd64.exe` |
+            | macOS (Intel) | `cc-go-darwin-amd64.zip` |
+            | macOS (Apple Silicon) | `cc-go-darwin-arm64.zip` |
+            | Linux | `cc-go-linux-amd64` |
+
+            ## macOS 用户注意
+
+            下载 `.zip` 解压后，由于应用未签名，需在终端运行：
+
+            ```bash
+            xattr -cr cc-go.app
+            ```
+
+            然后即可正常打开。
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
