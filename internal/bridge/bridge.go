@@ -860,6 +860,15 @@ func (b *Bridge) GetWechatInfo() WechatInfo {
 	}
 }
 
+func (b *Bridge) RecordBotAPISend(count int) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.sendBudget -= count
+	if b.sendBudget < 0 {
+		b.sendBudget = 0
+	}
+}
+
 func (b *Bridge) SendUserMessage(text string) error {
 	b.mu.Lock()
 	sess := b.activeSess

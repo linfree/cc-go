@@ -6,18 +6,19 @@ import (
 	"os"
 
 	"github.com/gin-gonic/gin"
+	"github.com/linfree/cc-go/internal/bridge"
 	"github.com/linfree/cc-go/internal/wechat"
 )
 
-func registerWechatBotRoutes(r *gin.RouterGroup, wc *wechat.Client) {
+func registerWechatBotRoutes(r *gin.RouterGroup, wc *wechat.Client, br *bridge.Bridge) {
 	bot := r.Group("/wechat-bot")
 
 	bot.GET("/status", func(c *gin.Context) {
 		connected := wc != nil && wc.Status() == wechat.StatusConnected
 		ct := wc.LastContact()
 		c.JSON(http.StatusOK, gin.H{
-			"connected":            connected,
-			"default_to_user_id":   ct.FromID,
+			"connected":             connected,
+			"default_to_user_id":    ct.FromID,
 			"default_context_token": ct.ContextToken,
 		})
 	})
@@ -45,18 +46,19 @@ func registerWechatBotRoutes(r *gin.RouterGroup, wc *wechat.Client) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
+		br.RecordBotAPISend(1)
 		c.JSON(http.StatusOK, gin.H{"status": "sent", "to_user_id": toID})
 	})
 
-	bot.POST("/send/image", sendMediaHandler(wc, "image", func(wc *wechat.Client, toID, ctxToken, filePath string) error {
+	bot.POST("/send/image", sendMediaHandler(wc, br, "image", func(wc *wechat.Client, toID, ctxToken, filePath string) error {
 		return wc.SendImage(toID, ctxToken, filePath)
 	}))
 
-	bot.POST("/send/file", sendMediaHandler(wc, "file", func(wc *wechat.Client, toID, ctxToken, filePath string) error {
+	bot.POST("/send/file", sendMediaHandler(wc, br, "file", func(wc *wechat.Client, toID, ctxToken, filePath string) error {
 		return wc.SendFile(toID, ctxToken, filePath)
 	}))
 
-	bot.POST("/send/video", sendMediaHandler(wc, "video", func(wc *wechat.Client, toID, ctxToken, filePath string) error {
+	bot.POST("/send/video", sendMediaHandler(wc, br, "video", func(wc *wechat.Client, toID, ctxToken, filePath string) error {
 		return wc.SendVideo(toID, ctxToken, filePath)
 	}))
 }
@@ -92,7 +94,7 @@ func resolveTarget(wc *wechat.Client, reqToID, reqContextToken string) (string, 
 	return toID, contextToken, nil
 }
 
-func sendMediaHandler(wc *wechat.Client, mediaType string, sendFn func(*wechat.Client, string, string, string) error) gin.HandlerFunc {
+func sendMediaHandler(wc *wechat.Client, br *bridge.Bridge, mediaType string, sendFn func(*wechat.Client, string, string, string) error) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if wc == nil || wc.Status() != wechat.StatusConnected {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "wechat bot not connected"})
@@ -121,11 +123,12 @@ func sendMediaHandler(wc *wechat.Client, mediaType string, sendFn func(*wechat.C
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
+		br.RecordBotAPISend(1)
 		c.JSON(http.StatusOK, gin.H{
-			"status":      "sent",
-			"to_user_id":  toID,
-			"media_type":  mediaType,
-			"file_size":   info.Size(),
+			"status":     "sent",
+			"to_user_id": toID,
+			"media_type": mediaType,
+			"file_size":  info.Size(),
 		})
 	}
 }
