@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/linfree/cc-go/internal/config"
+	"github.com/linfree/cc-go/internal/store"
 )
 
 func TestSplitLongMessage_Short(t *testing.T) {
@@ -61,7 +62,12 @@ func TestTruncateInput_NoCommand(t *testing.T) {
 
 func TestNewBridge(t *testing.T) {
 	cfg := config.DefaultConfig()
-	b := New(cfg, nil)
+	st, err := store.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	b := New(cfg, st)
 	if b == nil {
 		t.Fatal("expected non-nil bridge")
 	}
@@ -72,7 +78,12 @@ func TestNewBridge(t *testing.T) {
 
 func TestWSEvent(t *testing.T) {
 	cfg := config.DefaultConfig()
-	b := New(cfg, nil)
+	st, err := store.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	b := New(cfg, st)
 
 	// Emit and receive
 	b.emit(WSEvent{Event: "test", SessionID: "sid"})

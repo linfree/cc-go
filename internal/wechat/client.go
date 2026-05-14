@@ -158,7 +158,9 @@ func (c *Client) doRequest(method, path string, bodyData []byte) (map[string]int
 	defer resp.Body.Close()
 	respData, _ := io.ReadAll(resp.Body)
 	var result map[string]interface{}
-	json.Unmarshal(respData, &result)
+	if err := json.Unmarshal(respData, &result); err != nil {
+		return nil, fmt.Errorf("invalid json response: %w", err)
+	}
 	return result, nil
 }
 
@@ -250,15 +252,18 @@ func (c *Client) getTypingTicket(userID, contextToken string) (string, error) {
 }
 
 func (c *Client) PollMessages(timeoutMs int) ([]Message, string, error) {
+	c.mu.RLock()
+	buf := c.getUpdatesBuf
+	c.mu.RUnlock()
 	body, _ := json.Marshal(map[string]interface{}{
-		"get_updates_buf": c.getUpdatesBuf,
+		"get_updates_buf": buf,
 		"base_info":       map[string]string{"channel_version": "1.0.2"},
 	})
 	result, err := c.doRequest("POST", "ilink/bot/getupdates", body)
 	if err != nil {
 		return nil, "", err
 	}
-	buf, _ := result["get_updates_buf"].(string)
+	newBuf, _ := result["get_updates_buf"].(string)
 	rawMsgs, _ := result["msgs"].([]interface{})
 	var msgs []Message
 	for _, raw := range rawMsgs {
@@ -266,7 +271,7 @@ func (c *Client) PollMessages(timeoutMs int) ([]Message, string, error) {
 		msg := parseMessage(rm)
 		msgs = append(msgs, msg)
 	}
-	return msgs, buf, nil
+	return msgs, newBuf, nil
 }
 
 func (c *Client) Start() {
@@ -307,18 +312,21 @@ func (c *Client) pollLoop() {
 			continue
 		}
 		if newBuf != "" {
+			c.mu.Lock()
 			c.getUpdatesBuf = newBuf
+			c.mu.Unlock()
 		}
 		for _, msg := range msgs {
 			if msg.MessageType != 1 {
 				continue
 			}
+			contact := ContactInfo{FromID: msg.FromUserID, ContextToken: msg.ContextToken}
 			c.mu.Lock()
-			c.lastContact = ContactInfo{FromID: msg.FromUserID, ContextToken: msg.ContextToken}
-				onContact := c.onContact
+			c.lastContact = contact
+			onContact := c.onContact
 			c.mu.Unlock()
 			if onContact != nil {
-				onContact(c.lastContact)
+				onContact(contact)
 			}
 			select {
 			case c.msgCh <- msg:

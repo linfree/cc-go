@@ -24,7 +24,11 @@ func (c *Client) StartReconnectTimer(cfg ReconnectConfig) {
 	// Stop any existing reconnect goroutine
 	c.mu.Lock()
 	if c.reconnectStopCh != nil {
-		close(c.reconnectStopCh)
+		select {
+		case <-c.reconnectStopCh:
+		default:
+			close(c.reconnectStopCh)
+		}
 	}
 	c.reconnectStopCh = make(chan struct{})
 	stopCh := c.reconnectStopCh
@@ -148,7 +152,9 @@ func (c *Client) TriggerRelogin() error {
 		return err
 	}
 	c.sendActivationReminder(qrcode)
-	go c.pollQRCodeConfirmation(&qrcode, make(chan struct{}), nil)
+	pollStop := make(chan struct{})
+	time.AfterFunc(10*time.Minute, func() { close(pollStop) })
+	go c.pollQRCodeConfirmation(&qrcode, pollStop, nil)
 	return nil
 }
 

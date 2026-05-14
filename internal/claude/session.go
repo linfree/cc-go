@@ -269,7 +269,6 @@ func (s *Session) Stop() error {
 	select {
 	case <-done:
 	case <-time.After(5 * time.Second):
-		<-done
 	}
 
 	s.mu.Lock()

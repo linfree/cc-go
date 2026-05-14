@@ -40,6 +40,7 @@ type Bridge struct {
 	pendingPerms  []pendingPermission
 	mu            sync.Mutex
 	eventBus      chan interface{}
+	stopCh        chan struct{}
 	typingStopCh  chan struct{}
 	sendBudget    int
 	bufferMode    bool
@@ -76,17 +77,27 @@ func New(cfg *config.Config, s *store.Store) *Bridge {
 		config:   cfg,
 		store:    s,
 		eventBus: make(chan interface{}, 200),
+		stopCh:   make(chan struct{}),
 	}
 	br.SyncSessions()
 	go br.periodicSync()
 	return br
 }
 
+func (b *Bridge) Close() {
+	close(b.stopCh)
+}
+
 func (b *Bridge) periodicSync() {
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
-	for range ticker.C {
-		b.SyncSessions()
+	for {
+		select {
+		case <-ticker.C:
+			b.SyncSessions()
+		case <-b.stopCh:
+			return
+		}
 	}
 }
 

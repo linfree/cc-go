@@ -29,8 +29,14 @@ func registerWechatRoutes(r *gin.RouterGroup, cfg *config.Config, wc *wechat.Cli
 			return
 		}
 		go func() {
+			ctx := c.Request.Context()
 			deadline := time.Now().Add(10 * time.Minute)
 			for time.Now().Before(deadline) {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+				}
 				confirmed, token, baseURL, err := wc.CheckQRCodeStatus(qrcode)
 				if err != nil {
 					time.Sleep(1 * time.Second)

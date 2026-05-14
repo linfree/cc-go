@@ -22,7 +22,10 @@ func parseMessage(raw map[string]interface{}) Message {
 	msg.ContextToken, _ = raw["context_token"].(string)
 	items, _ := raw["item_list"].([]interface{})
 	for _, item := range items {
-		im, _ := item.(map[string]interface{})
+		im, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
 		t, _ := im["type"].(float64)
 		if t == 1 {
 			ti, _ := im["text_item"].(map[string]interface{})

@@ -93,8 +93,12 @@ func (s *Store) migrate() error {
 		}
 		s.db.Exec(`DROP TABLE sessions_old`)
 	} else if !strings.Contains(schema, "message_count") {
-		s.db.Exec(`ALTER TABLE sessions ADD COLUMN message_count INTEGER NOT NULL DEFAULT 0`)
-		s.db.Exec(`ALTER TABLE sessions ADD COLUMN git_branch TEXT NOT NULL DEFAULT ''`)
+		if _, err := s.db.Exec(`ALTER TABLE sessions ADD COLUMN message_count INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return err
+		}
+		if _, err := s.db.Exec(`ALTER TABLE sessions ADD COLUMN git_branch TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
 	}
 	return nil
 }

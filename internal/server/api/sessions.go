@@ -278,6 +278,11 @@ func registerSessionRoutes(r *gin.RouterGroup, st *store.Store, br *bridge.Bridg
 	})
 
 	r.POST("/sessions/:id/stop", func(c *gin.Context) {
+		id := c.Param("id")
+		if br.ActiveSessionID() != id {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "session is not active"})
+			return
+		}
 		br.StopSession()
 		c.JSON(http.StatusOK, gin.H{"status": "stopped"})
 	})
@@ -302,6 +307,9 @@ func registerSessionRoutes(r *gin.RouterGroup, st *store.Store, br *bridge.Bridg
 
 	r.DELETE("/sessions/:id", func(c *gin.Context) {
 		id := c.Param("id")
+		if br.ActiveSessionID() == id {
+			br.StopSession()
+		}
 		st.DeleteSession(id)
 		// Remove the actual JSONL file from disk
 		if hs := claude.FindSession(id); hs != nil {
