@@ -7,6 +7,7 @@ require (
 	github.com/getlantern/systray v1.2.2
 	github.com/gin-gonic/gin v1.12.0
 	github.com/jchv/go-webview2 v0.0.0-20260205173254-56598839c808
+	golang.org/x/sys v0.42.0
 	modernc.org/sqlite v1.50.0
 )
 
@@ -50,7 +51,6 @@ require (
 	golang.org/x/arch v0.22.0 // indirect
 	golang.org/x/crypto v0.48.0 // indirect
 	golang.org/x/net v0.51.0 // indirect
-	golang.org/x/sys v0.42.0 // indirect
 	golang.org/x/text v0.34.0 // indirect
 	google.golang.org/protobuf v1.36.10 // indirect
 	modernc.org/libc v1.72.0 // indirect

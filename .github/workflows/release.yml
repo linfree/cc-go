@@ -64,11 +64,23 @@ jobs:
         run: |
           go build -ldflags "${{ matrix.ldflags }}" -o cc-go-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }} ./cmd/cc-go/
 
+      - name: Package macOS .app
+        if: matrix.goos == 'darwin'
+        run: |
+          mkdir -p "cc-go.app/Contents/MacOS"
+          mkdir -p "cc-go.app/Contents/Resources"
+          cp cc-go-${{ matrix.goos }}-${{ matrix.goarch }} "cc-go.app/Contents/MacOS/cc-go"
+          cp cmd/cc-go/Info.plist "cc-go.app/Contents/"
+          cp cmd/cc-go/cc-go.icns "cc-go.app/Contents/Resources/"
+          zip -r cc-go-${{ matrix.goos }}-${{ matrix.goarch }}.zip cc-go.app
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: cc-go-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: cc-go-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
+          path: |
+            cc-go-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
+            cc-go-${{ matrix.goos }}-${{ matrix.goarch }}.zip
 
   release:
     needs: build
@@ -87,5 +99,24 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*
+          body: |
+            ## 下载
+
+            | 平台 | 文件 |
+            |------|------|
+            | Windows | `cc-go-windows-amd64.exe` |
+            | macOS (Intel) | `cc-go-darwin-amd64.zip` |
+            | macOS (Apple Silicon) | `cc-go-darwin-arm64.zip` |
+            | Linux | `cc-go-linux-amd64` |
+
+            ## macOS 用户注意
+
+            下载 `.zip` 解压后，由于应用未签名，需在终端运行：
+
+            ```bash
+            xattr -cr cc-go.app
+            ```
+
+            然后即可正常打开。
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
