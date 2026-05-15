@@ -18,9 +18,20 @@ import (
 
 const maxWeChatMsgLen = 3500
 
+type BufferMediaType int
+
+const (
+	BufText BufferMediaType = iota
+	BufImage
+	BufFile
+	BufVideo
+)
+
 type bufferedMessage struct {
-	text   string
-	isPerm bool
+	text      string
+	isPerm    bool
+	mediaType BufferMediaType
+	filePath  string
 }
 
 type WechatInfo struct {
@@ -209,8 +220,8 @@ func (b *Bridge) emit(evt WSEvent) {
 }
 
 func (b *Bridge) HandleWechatMessage(msg wechat.Message) {
-	b.flushMessageBuffer(msg)
 	b.resetSendBudget()
+	b.flushMessageBuffer(msg)
 
 	b.mu.Lock()
 	b.lastMsgTime = time.Now().Format(time.RFC3339)
@@ -860,13 +871,37 @@ func (b *Bridge) GetWechatInfo() WechatInfo {
 	}
 }
 
-func (b *Bridge) RecordBotAPISend(count int) {
+// BotAPIBudgetResult is returned by BudgetedBotSend.
+type BotAPIBudgetResult struct {
+	CanSend         bool
+	Buffered        bool
+	BudgetExhausted bool
+}
+
+// BudgetedBotSend checks send budget for a Bot API message.
+// If budget is exhausted, the message is buffered in the queue.
+func (b *Bridge) BudgetedBotSend(text string, mediaType BufferMediaType, filePath string) BotAPIBudgetResult {
 	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.sendBudget -= count
-	if b.sendBudget < 0 {
-		b.sendBudget = 0
+	if b.bufferMode {
+		b.addBufLocked(bufferedMessage{text: text, mediaType: mediaType, filePath: filePath})
+		b.mu.Unlock()
+		return BotAPIBudgetResult{Buffered: true, BudgetExhausted: true}
 	}
+	if b.sendBudget <= 0 {
+		b.bufferMode = true
+		b.mu.Unlock()
+		ct := b.wechatClient.LastContact()
+		if ct.FromID != "" {
+			b.wechatClient.SendMessage(ct.FromID, ct.ContextToken, b.formatBudgetExhaustedReminder())
+		}
+		b.mu.Lock()
+		b.addBufLocked(bufferedMessage{text: text, mediaType: mediaType, filePath: filePath})
+		b.mu.Unlock()
+		return BotAPIBudgetResult{Buffered: true, BudgetExhausted: true}
+	}
+	b.sendBudget--
+	b.mu.Unlock()
+	return BotAPIBudgetResult{CanSend: true}
 }
 
 func (b *Bridge) SendUserMessage(text string) error {
@@ -932,18 +967,20 @@ func (b *Bridge) sendWechatToLast(text string) {
 func (b *Bridge) resetSendBudget() {
 	b.mu.Lock()
 	b.sendBudget = b.config.Wechat.GetSendBudgetLimit()
-	b.bufferMode = false
-	b.msgBuffer = nil
 	b.pendingText.Reset()
 	b.mu.Unlock()
 }
 
 func (b *Bridge) addToBufferLocked(text string, isPerm bool) {
+	b.addBufLocked(bufferedMessage{text: text, isPerm: isPerm, mediaType: BufText})
+}
+
+func (b *Bridge) addBufLocked(m bufferedMessage) {
 	maxBuf := b.config.Wechat.GetMaxBufferedMessages()
 	for len(b.msgBuffer) >= maxBuf {
 		evicted := false
-		for i, m := range b.msgBuffer {
-			if !m.isPerm {
+		for i, bm := range b.msgBuffer {
+			if !bm.isPerm {
 				b.msgBuffer = append(b.msgBuffer[:i], b.msgBuffer[i+1:]...)
 				evicted = true
 				break
@@ -953,7 +990,7 @@ func (b *Bridge) addToBufferLocked(text string, isPerm bool) {
 			return
 		}
 	}
-	b.msgBuffer = append(b.msgBuffer, bufferedMessage{text: text, isPerm: isPerm})
+	b.msgBuffer = append(b.msgBuffer, m)
 }
 
 func (b *Bridge) flushMessageBuffer(msg wechat.Message) {
@@ -968,17 +1005,107 @@ func (b *Bridge) flushMessageBuffer(msg wechat.Message) {
 	}
 	msgs := b.msgBuffer
 	b.msgBuffer = nil
-	b.bufferMode = false
+	// keep bufferMode=true during flush to block new API sends
 	b.mu.Unlock()
 
-	var sb strings.Builder
-	for i, bm := range msgs {
-		if i > 0 {
-			sb.WriteString("\n\n---\n\n")
+	sent := 0
+	maxBudget := b.config.Wechat.GetSendBudgetLimit()
+
+	toID := msg.FromUserID
+	ctxToken := msg.ContextToken
+
+	// flushOne sends a merged text group or a media message, returns true if sent.
+	var textGroup []string
+	flushTextGroup := func() bool {
+		if len(textGroup) == 0 {
+			return false
 		}
-		sb.WriteString(fmt.Sprintf("消息%d:\n%s", i+1, bm.text))
+		var sb strings.Builder
+		for i, t := range textGroup {
+			if i > 0 {
+				sb.WriteString("\n\n---\n\n")
+			}
+			sb.WriteString(fmt.Sprintf("**消息%d:**\n\n%s", i+1, t))
+		}
+		b.sendWechat(msg, sb.String())
+		textGroup = textGroup[:0]
+		return true
 	}
-	b.sendWechat(msg, sb.String())
+
+	sendItem := func() {
+		sent++
+		b.mu.Lock()
+		if b.sendBudget > 0 {
+			b.sendBudget--
+		}
+		b.mu.Unlock()
+	}
+
+	for i := 0; i < len(msgs); i++ {
+		bm := msgs[i]
+		switch bm.mediaType {
+		case BufImage, BufFile, BufVideo:
+			// Flush pending text group first
+			if flushTextGroup() {
+				sendItem()
+			}
+			// Check budget for media
+			if sent >= maxBudget {
+				// Put remaining messages back in buffer
+				b.putBackBuffer(msgs[i:], textGroup)
+				return
+			}
+			switch bm.mediaType {
+			case BufImage:
+				b.wechatClient.SendImage(toID, ctxToken, bm.filePath)
+			case BufFile:
+				b.wechatClient.SendFile(toID, ctxToken, bm.filePath)
+			case BufVideo:
+				b.wechatClient.SendVideo(toID, ctxToken, bm.filePath)
+			}
+			sendItem()
+		default:
+			if bm.text != "" {
+				textGroup = append(textGroup, bm.text)
+			}
+			// Flush text group if next item is media or end of list
+			nextIsMedia := false
+			if i+1 < len(msgs) {
+				nextIsMedia = msgs[i+1].mediaType == BufImage || msgs[i+1].mediaType == BufFile || msgs[i+1].mediaType == BufVideo
+			}
+			if nextIsMedia || i == len(msgs)-1 {
+				if flushTextGroup() {
+					sendItem()
+				}
+			}
+		}
+		// Stop if we've used the budget
+		if sent >= maxBudget && i+1 < len(msgs) {
+			b.putBackBuffer(msgs[i+1:], textGroup)
+			return
+		}
+	}
+
+	// All messages sent, clear buffer mode
+	b.mu.Lock()
+	b.bufferMode = false
+	b.mu.Unlock()
+}
+
+// putBackBuffer returns unsent messages to the buffer and re-enters buffer mode.
+func (b *Bridge) putBackBuffer(remaining []bufferedMessage, pendingText []string) {
+	b.mu.Lock()
+	b.bufferMode = true
+	for _, t := range pendingText {
+		b.msgBuffer = append(b.msgBuffer, bufferedMessage{text: t, mediaType: BufText})
+	}
+	b.msgBuffer = append(b.msgBuffer, remaining...)
+	b.mu.Unlock()
+
+	ct := b.wechatClient.LastContact()
+	if ct.FromID != "" {
+		b.wechatClient.SendMessage(ct.FromID, ct.ContextToken, b.formatBudgetExhaustedReminder())
+	}
 }
 
 func (b *Bridge) flushWechatBudgeted() {

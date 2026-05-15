@@ -84,7 +84,7 @@ export default function WechatBind() {
     if (diff <= 0) return '已过期'
     const h = Math.floor(diff / 3600000)
     const m = Math.floor((diff % 3600000) / 60000)
-    const s = Math.floor((diff % 60000) / 1000)
+    const s = Math.floor((diff % 60000) / 6000)
     if (h > 0) return h + '小时' + m + '分' + s + '秒'
     return m + '分' + s + '秒'
   }
@@ -101,12 +101,11 @@ export default function WechatBind() {
 
       {/* Bento Grid */}
       <div className="grid grid-cols-12 gap-6">
-        {/* Connection Status Card */}
-        <div className="col-span-12 lg:col-span-8">
+        {/* Left column: Connection Status + Bot API */}
+        <div className="col-span-12 lg:col-span-8 flex flex-col gap-6">
+          {/* Connection Status Card */}
           <div className="bg-surface-container border border-outline-variant rounded-lg overflow-hidden">
-            {/* Green gradient line */}
             <div className="h-1 bg-gradient-to-r from-secondary/50 to-transparent" />
-
             <div className="p-6">
               <div className="flex items-center justify-between mb-6">
                 <h3 className="text-[20px] font-semibold text-primary">连接状态</h3>
@@ -122,45 +121,31 @@ export default function WechatBind() {
 
               {connected ? (
                 <>
-                  {/* Profile section */}
                   <div className="flex items-center gap-4 mb-6 p-4 bg-surface-container-low rounded-lg border border-outline-variant">
                     <div className="w-12 h-12 rounded-full bg-secondary/20 flex items-center justify-center">
                       <span className="material-symbols-outlined text-secondary">person</span>
                     </div>
                     <div>
-                      <p className="text-[14px] font-semibold text-primary">
-                        {status.bot_name || '微信助手'}
-                      </p>
-                      <p className="font-mono text-[12px] text-on-surface-variant">
-                        {status.wxid || '未知'}
-                      </p>
+                      <p className="text-[14px] font-semibold text-primary">{status.bot_name || '微信助手'}</p>
+                      <p className="font-mono text-[12px] text-on-surface-variant">{status.wxid || '未知'}</p>
                       {status.masked_token && (
-                        <p className="font-mono text-[11px] text-on-surface-variant/60 mt-0.5">
-                          Token: {status.masked_token}
-                        </p>
+                        <p className="font-mono text-[11px] text-on-surface-variant/60 mt-0.5">Token: {status.masked_token}</p>
                       )}
                     </div>
                   </div>
 
-                  {/* Detail grid */}
                   <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
                     <div className="p-3 bg-surface-container-low rounded-lg">
                       <p className="font-mono text-[11px] text-on-surface-variant mb-1">登录时间</p>
-                      <p className="text-[14px] text-on-surface">
-                        {status.login_time ? new Date(status.login_time).toLocaleString('zh-CN', { hour12: false }) : '—'}
-                      </p>
+                      <p className="text-[14px] text-on-surface">{status.login_time ? new Date(status.login_time).toLocaleString('zh-CN', { hour12: false }) : '—'}</p>
                     </div>
                     <div className="p-3 bg-surface-container-low rounded-lg">
                       <p className="font-mono text-[11px] text-on-surface-variant mb-1">最后消息</p>
-                      <p className="text-[14px] text-on-surface">
-                        {status.last_msg_time ? new Date(status.last_msg_time).toLocaleString('zh-CN', { hour12: false }) : '—'}
-                      </p>
+                      <p className="text-[14px] text-on-surface">{status.last_msg_time ? new Date(status.last_msg_time).toLocaleString('zh-CN', { hour12: false }) : '—'}</p>
                     </div>
                     <div className="p-3 bg-surface-container-low rounded-lg">
                       <p className="font-mono text-[11px] text-on-surface-variant mb-1">消息通道</p>
-                      <p className="text-[14px] text-on-surface">
-                        剩余 {status.send_budget ?? '—'} / {status.budget_limit ?? '—'}
-                      </p>
+                      <p className="text-[14px] text-on-surface">剩余 {status.send_budget ?? '—'} / {status.budget_limit ?? '—'}</p>
                     </div>
                     <div className="p-3 bg-surface-container-low rounded-lg">
                       <p className="font-mono text-[11px] text-on-surface-variant mb-1">缓存队列</p>
@@ -172,13 +157,10 @@ export default function WechatBind() {
                     </div>
                     <div className="p-3 bg-surface-container-low rounded-lg">
                       <p className="font-mono text-[11px] text-on-surface-variant mb-1">下次登录提醒</p>
-                      <p className="text-[14px] text-on-surface">
-                        {status.next_reminder_time ? formatCountdown(status.next_reminder_time) : '—'}
-                      </p>
+                      <p className="text-[14px] text-on-surface">{status.next_reminder_time ? formatCountdown(status.next_reminder_time) : '—'}</p>
                     </div>
                   </div>
 
-                  {/* Disconnect button */}
                   <button
                     onClick={handleDisconnect}
                     className="flex items-center gap-2 px-4 py-2 rounded border border-error/30 text-error bg-error/5 hover:bg-error/10 transition-colors text-[14px]"
@@ -196,6 +178,81 @@ export default function WechatBind() {
               )}
             </div>
           </div>
+
+          {/* Bot API Card */}
+          {connected && (
+            <div className="bg-surface-container border border-outline-variant rounded-lg overflow-hidden">
+              <div className="h-1 bg-gradient-to-r from-tertiary/50 to-transparent" />
+              <div className="p-6">
+                <div className="flex items-center gap-2 mb-4">
+                  <span className="material-symbols-outlined text-tertiary text-[20px]">api</span>
+                  <h3 className="text-[20px] font-semibold text-primary">Bot API</h3>
+                  <span className="ml-auto font-mono text-[11px] text-on-surface-variant bg-surface-container-low px-2 py-0.5 rounded border border-outline-variant">
+                    http://localhost:{window.location.port}/api/v1/wechat-bot
+                  </span>
+                </div>
+                <p className="text-[13px] text-on-surface-variant mb-4">
+                  本地应用可通过以下接口发送消息，所有消息共享消息通道预算。
+                </p>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-[13px]">
+                    <thead>
+                      <tr className="border-b border-outline-variant text-on-surface-variant">
+                        <th className="text-left py-2 pr-4 font-medium">方法</th>
+                        <th className="text-left py-2 pr-4 font-medium">端点</th>
+                        <th className="text-left py-2 font-medium">参数</th>
+                      </tr>
+                    </thead>
+                    <tbody className="text-on-surface">
+                      <tr className="border-b border-outline-variant/50">
+                        <td className="py-2 pr-4"><code className="text-secondary font-mono text-[12px]">GET</code></td>
+                        <td className="py-2 pr-4"><code className="font-mono text-[12px]">/status</code></td>
+                        <td className="py-2 text-on-surface-variant text-[12px]">—</td>
+                      </tr>
+                      <tr className="border-b border-outline-variant/50">
+                        <td className="py-2 pr-4"><code className="text-tertiary font-mono text-[12px]">POST</code></td>
+                        <td className="py-2 pr-4"><code className="font-mono text-[12px]">/send/text</code></td>
+                        <td className="py-2 text-on-surface-variant text-[12px]">text, to_user_id?, context_token?</td>
+                      </tr>
+                      <tr className="border-b border-outline-variant/50">
+                        <td className="py-2 pr-4"><code className="text-tertiary font-mono text-[12px]">POST</code></td>
+                        <td className="py-2 pr-4"><code className="font-mono text-[12px]">/send/image</code></td>
+                        <td className="py-2 text-on-surface-variant text-[12px]">file_path, to_user_id?, context_token?</td>
+                      </tr>
+                      <tr className="border-b border-outline-variant/50">
+                        <td className="py-2 pr-4"><code className="text-tertiary font-mono text-[12px]">POST</code></td>
+                        <td className="py-2 pr-4"><code className="font-mono text-[12px]">/send/file</code></td>
+                        <td className="py-2 text-on-surface-variant text-[12px]">file_path, to_user_id?, context_token?</td>
+                      </tr>
+                      <tr>
+                        <td className="py-2 pr-4"><code className="text-tertiary font-mono text-[12px]">POST</code></td>
+                        <td className="py-2 pr-4"><code className="font-mono text-[12px]">/send/video</code></td>
+                        <td className="py-2 text-on-surface-variant text-[12px]">file_path, to_user_id?, context_token?</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="mt-4 p-3 bg-surface-container-lowest rounded-lg border border-outline-variant">
+                  <p className="font-mono text-[11px] text-on-surface-variant mb-2">示例 — 发送文本消息</p>
+                  <pre className="text-[12px] text-on-surface font-mono whitespace-pre-wrap break-all">
+{`curl -X POST http://localhost:${window.location.port}/api/v1/wechat-bot/send/text \\
+  -H "Content-Type: application/json; charset=utf-8" \\
+  -d '{"text":"Hello from API"}'`}
+                  </pre>
+                </div>
+                <div className="mt-3 p-3 bg-surface-container-lowest rounded-lg border border-outline-variant">
+                  <p className="font-mono text-[11px] text-on-surface-variant mb-2">示例 — 发送图片</p>
+                  <pre className="text-[12px] text-on-surface font-mono whitespace-pre-wrap break-all">
+{`curl -X POST http://localhost:${window.location.port}/api/v1/wechat-bot/send/image \\
+  -H "Content-Type: application/json; charset=utf-8" \\
+  -d '{"file_path":"C:/path/to/photo.png"}'`}
+                  </pre>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* New Binding Card */}
@@ -209,7 +266,6 @@ export default function WechatBind() {
               </span>
             </div>
 
-            {/* QR Code area */}
             <div className={`relative mb-6 ${connected ? 'opacity-50 cursor-not-allowed' : ''}`}>
               <div className="aspect-square bg-surface-container-lowest rounded-lg border-2 border-dashed border-outline-variant flex items-center justify-center overflow-hidden">
                 {qrcodeDataUrl ? (
@@ -228,7 +284,6 @@ export default function WechatBind() {
               )}
             </div>
 
-            {/* Get QR button */}
             {!connected && (
               <button
                 onClick={handleGetQRCode}
@@ -244,7 +299,6 @@ export default function WechatBind() {
               </button>
             )}
 
-            {/* Binding steps */}
             <div>
               <p className="font-mono text-[11px] text-on-surface-variant mb-3">绑定流程</p>
               <ol className="space-y-2.5">
