@@ -2,7 +2,7 @@
 
 > 通过微信机器人接管 Claude Code，实现随时随地编码。
 
-cc-go 是一款基于 [Claude Code](https://claude.ai/code) 的远程编码工具。通过微信机器人接管 Claude Code 会话，你可以在手机上批准权限请求、查看 AI 回复、启动/切换会话，真正做到随时随地编码。
+cc-go 是一款基于 [Claude Code](https://claude.ai/code) 的远程编码工具。通过微信机器人接管 Claude Code 会话，你可以在手机上批准权限请求、查看 AI 回复、启动/切换会话，真正做到随时随地编码。内置 Skills 自动注入和微信通知通道，Claude 可以主动向你的微信推送消息。
 
 ## 快速开始
 
