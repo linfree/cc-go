@@ -1,4 +1,4 @@
-//go:build !windows
+//go:build darwin
 
 package ui
 
@@ -33,7 +33,6 @@ func (u *otherUI) Run(onReady func()) {
 		systray.AddSeparator()
 		mQuit := systray.AddMenuItem("退出", "停止服务并退出")
 
-		// Auto-open browser on start
 		url := fmt.Sprintf("http://localhost:%d", u.port)
 		openBrowser(url)
 
