@@ -22,6 +22,7 @@ export default function WechatBind() {
   const [qrcodeDataUrl, setQrcodeDataUrl] = useState('')
   const [loading, setLoading] = useState(false)
   const [now, setNow] = useState(Date.now())
+  const [error, setError] = useState('')
   const [disconnectConfirm, setDisconnectConfirm] = useState(false)
   const [botApiExpanded, setBotApiExpanded] = useState(false)
 
@@ -50,6 +51,7 @@ export default function WechatBind() {
 
   const handleGetQRCode = async () => {
     setLoading(true)
+    setError('')
     try {
       const data = await api.getQRCode()
       const url = data.qrcode_img || data.qrcode
@@ -61,8 +63,9 @@ export default function WechatBind() {
         })
         setQrcodeDataUrl(dataUrl)
       }
-    } catch (e) {
-      console.error('Failed to get QR code:', e)
+    } catch (e: any) {
+      const msg = e?.message || e?.error || String(e)
+      setError(msg)
     } finally {
       setLoading(false)
     }
@@ -319,6 +322,7 @@ export default function WechatBind() {
             </div>
 
             {!connected && (
+              <>
               <button
                 onClick={handleGetQRCode}
                 disabled={loading}
@@ -331,6 +335,12 @@ export default function WechatBind() {
                 )}
                 {loading ? '获取中...' : '获取二维码'}
               </button>
+              {error && (
+                <div className="mb-6 p-3 bg-error/5 rounded-lg border border-error/30 text-[13px] text-error">
+                  {error}
+                </div>
+              )}
+              </>
             )}
 
             <div>

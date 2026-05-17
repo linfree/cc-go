@@ -6,7 +6,12 @@ async function request(path: string, options?: RequestInit) {
     ...options,
   })
   if (!res.ok) {
-    throw new Error(`API error: ${res.status}`)
+    let msg = `请求失败 (${res.status})`
+    try {
+      const data = await res.json()
+      if (data.error) msg = data.error
+    } catch {}
+    throw new Error(msg)
   }
   return res.json()
 }

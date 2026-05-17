@@ -167,7 +167,9 @@ func Load() (*Config, error) {
 	data, err := os.ReadFile(cfgPath)
 	if err != nil {
 		if os.IsNotExist(err) {
+			SeedDefaultSkills()
 			cfg := DefaultConfig()
+			cfg.Skills = ensureSkills(cfg.Skills)
 			return cfg, cfg.Save()
 		}
 		return nil, err
