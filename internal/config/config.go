@@ -26,8 +26,9 @@ type Config struct {
 	PermissionMode  string       `json:"permission_mode"`
 	Language        string       `json:"language"`
 	WebPort         int          `json:"web_port"`
-	AutoOpenBrowser bool         `json:"auto_open_browser"`
-	ClaudeEnvVars   string       `json:"claude_env_vars"`
+	AutoOpenBrowser  bool         `json:"auto_open_browser"`
+	AutoResumeLatest bool         `json:"auto_resume_latest"`
+	ClaudeEnvVars    string       `json:"claude_env_vars"`
 	Wechat          WechatConfig `json:"wechat"`
 	PushTypes       []string     `json:"push_types"`
 	BotCommands     []BotCommand `json:"bot_commands"`

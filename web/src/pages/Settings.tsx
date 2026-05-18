@@ -32,6 +32,7 @@ interface Settings {
   language?: string
   web_port?: number
   auto_open_browser?: boolean
+  auto_resume_latest?: boolean
   auto_find_claude?: boolean
   permission_mode?: string
   claude_env_vars?: string
@@ -291,6 +292,16 @@ export default function Settings() {
                     <div className="shrink-0"><Toggle
                       checked={settings.auto_open_browser || false}
                       onChange={v => setSettings({ ...settings, auto_open_browser: v })}
+                    /></div>
+                  </div>
+                  <div className="flex items-center justify-between p-3 bg-surface-container-low rounded-lg">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[14px] text-on-surface">启动后自动接管最新会话</p>
+                      <p className="text-[12px] text-on-surface-variant">启动时自动恢复上次最近使用的会话</p>
+                    </div>
+                    <div className="shrink-0"><Toggle
+                      checked={settings.auto_resume_latest || false}
+                      onChange={v => setSettings({ ...settings, auto_resume_latest: v })}
                     /></div>
                   </div>
                   <div className="flex items-center justify-between p-3 bg-surface-container-low rounded-lg">

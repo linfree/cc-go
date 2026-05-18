@@ -46,8 +46,9 @@ func registerSettingsRoutes(r *gin.RouterGroup, cfg *config.Config) {
 			PermissionMode  string `json:"permission_mode"`
 			Language        string `json:"language"`
 			WebPort         int    `json:"web_port"`
-			AutoOpenBrowser *bool  `json:"auto_open_browser"`
-			ClaudeEnvVars   string `json:"claude_env_vars"`
+			AutoOpenBrowser  *bool  `json:"auto_open_browser"`
+			AutoResumeLatest *bool `json:"auto_resume_latest"`
+			ClaudeEnvVars    string `json:"claude_env_vars"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -70,6 +71,9 @@ func registerSettingsRoutes(r *gin.RouterGroup, cfg *config.Config) {
 		}
 		if req.AutoOpenBrowser != nil {
 			cfg.AutoOpenBrowser = *req.AutoOpenBrowser
+		}
+		if req.AutoResumeLatest != nil {
+			cfg.AutoResumeLatest = *req.AutoResumeLatest
 		}
 		cfg.ClaudeEnvVars = req.ClaudeEnvVars
 		cfg.Save()

@@ -89,6 +89,25 @@ func main() {
 		}()
 	}
 
+	if cfg.AutoResumeLatest {
+		sessions, err := st.ListSessions()
+		if err == nil && len(sessions) > 0 {
+			for _, s := range sessions {
+				if s.Status != "active" && s.WorkDir != "" {
+					log.Printf("auto-resuming latest session: %s (%s)", s.Name, s.ID)
+					if err := br.StartSession(claude.StartOptions{
+						WorkDir:  s.WorkDir,
+						Name:     s.Name,
+						ResumeID: s.ID,
+					}); err != nil {
+						log.Printf("auto-resume failed: %v", err)
+					}
+					break
+				}
+			}
+		}
+	}
+
 	srv := server.New(cfg, st, br, wc)
 
 	RegisterStaticRoutes(srv.Router())
