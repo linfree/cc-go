@@ -1,8 +1,19 @@
+<div align="center">
+
 # cc-go
 
-> 通过微信机器人接管 Claude Code，实现随时随地编码。
+**通过微信机器人接管 Claude Code，实现随时随地编码**
+
+[![GitHub Release](https://img.shields.io/github/v/release/linfree/cc-go?style=flat-square&logo=github&color=blue)](https://github.com/linfree/cc-go/releases/latest)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/linfree/cc-go?style=flat-square&logo=go&color=00ADD8)](https://go.dev/)
+![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey?style=flat-square&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLXdpZHRoPSIyIj48cmVjdCB4PSIyIiB5PSIzIiB3aWR0aD0iMjAiIGhlaWdodD0iMTQiIHJ4PSIyIi8+PGxpbmUgeDE9IjgiIHkxPSIyMSIgeDI9IjE2IiB5Mj0iMjEiLz48bGluZSB4MT0iMTIiIHkxPSIxNyIgeDI9IjEyIiB5Mj0iMjEiLz48L3N2Zz4=)
+[![Made with React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react)](https://react.dev/)
+[![WeChat](https://img.shields.io/badge/WeChat-Enabled-07C160?style=flat-square&logo=wechat&logoColor=white)](https://weixin.qq.com/)
+[![Powered by Claude](https://img.shields.io/badge/AI-Claude-FF6B35?style=flat-square&logo=anthropic&logoColor=white)](https://claude.ai/code)
 
 cc-go 是一款基于 [Claude Code](https://claude.ai/code) 的远程编码工具。通过微信机器人接管 Claude Code 会话，你可以在手机上批准权限请求、查看 AI 回复、启动/切换会话，真正做到随时随地编码。内置 Skills 自动注入和微信通知通道，Claude 可以主动向你的微信推送消息。
+
+</div>
 
 ## 快速开始
 
