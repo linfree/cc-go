@@ -10,6 +10,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/google/uuid"
 	"github.com/linfree/cc-go/internal/claude"
 	"github.com/linfree/cc-go/internal/config"
 	"github.com/linfree/cc-go/internal/store"
@@ -551,6 +552,15 @@ func (b *Bridge) StartSession(opts claude.StartOptions) error {
 
 	b.config.InjectSkills(opts.WorkDir)
 
+	// For brand-new sessions, pre-assign a session ID via --session-id so the
+	// session is registered immediately. Claude in stream-json mode does not
+	// emit its init event (which carries the session_id) until it receives the
+	// first user message, so without this a freshly created session would never
+	// be persisted to the store nor shown in the session list.
+	if opts.ResumeID == "" && opts.SessionID == "" {
+		opts.SessionID = uuid.NewString()
+	}
+
 	sess, err := claude.Start(opts)
 	if err != nil {
 		return err
@@ -558,6 +568,9 @@ func (b *Bridge) StartSession(opts claude.StartOptions) error {
 	b.activeSess = sess
 
 	sessionID := opts.ResumeID
+	if sessionID == "" {
+		sessionID = opts.SessionID
+	}
 	b.activeSessID = sessionID
 
 	var logger *claude.SessionLogger
