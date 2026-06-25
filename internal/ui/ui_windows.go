@@ -19,10 +19,11 @@ import (
 )
 
 var (
-	user32          = windows.NewLazyDLL("user32.dll")
-	procFindWindowW = user32.NewProc("FindWindowW")
-	procSendMessageW = user32.NewProc("SendMessageW")
-	procLoadImageW  = user32.NewProc("LoadImageW")
+	user32                = windows.NewLazyDLL("user32.dll")
+	procFindWindowW       = user32.NewProc("FindWindowW")
+	procSendMessageW      = user32.NewProc("SendMessageW")
+	procLoadImageW        = user32.NewProc("LoadImageW")
+	procMessageBoxW       = user32.NewProc("MessageBoxW")
 )
 
 const (
@@ -66,7 +67,7 @@ func (u *windowsUI) Run(onReady func()) {
 	systray.Run(func() {
 		systray.SetIcon(u.icon)
 		systray.SetTitle("cc-go")
-		systray.SetTooltip("cc-go - Claude Code remote manager")
+		systray.SetTooltip(fmt.Sprintf("cc-go - Claude Code remote manager (localhost:%d)", u.port))
 
 		mOpen := systray.AddMenuItem("在浏览器中打开", "在外部浏览器中打开管理面板")
 		mShow := systray.AddMenuItem("显示窗口", "显示管理面板窗口")
@@ -167,6 +168,12 @@ func (u *windowsUI) closeWebview() {
 	if w != nil {
 		w.Destroy()
 	}
+}
+
+func (u *windowsUI) ShowMessage(title, message string) {
+	titlePtr, _ := windows.UTF16PtrFromString(title)
+	msgPtr, _ := windows.UTF16PtrFromString(message)
+	procMessageBoxW.Call(0, uintptr(unsafe.Pointer(msgPtr)), uintptr(unsafe.Pointer(titlePtr)), 0)
 }
 
 func (u *windowsUI) Quit() {

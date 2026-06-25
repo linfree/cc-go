@@ -33,6 +33,7 @@ type Config struct {
 	PushTypes       []string     `json:"push_types"`
 	BotCommands     []BotCommand `json:"bot_commands"`
 	Skills          []SkillConfig `json:"skills"`
+	ActualPort      int          `json:"actual_port"` // runtime: actual listening port, may differ from WebPort
 }
 
 type WechatConfig struct {

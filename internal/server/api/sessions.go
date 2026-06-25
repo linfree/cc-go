@@ -10,13 +10,23 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/linfree/cc-go/internal/bridge"
 	"github.com/linfree/cc-go/internal/claude"
+	"github.com/linfree/cc-go/internal/config"
 	"github.com/linfree/cc-go/internal/store"
 )
 
-func registerClaudeRoutes(r *gin.RouterGroup, st *store.Store, br *bridge.Bridge) {
+func registerClaudeRoutes(r *gin.RouterGroup, cfg *config.Config, st *store.Store, br *bridge.Bridge) {
 	r.GET("/claude/path", func(c *gin.Context) {
-		path, err := claude.FindClaudeCLI()
-		c.JSON(http.StatusOK, gin.H{"path": path, "error": errToStr(err)})
+		path := cfg.ClaudeCLIPath
+		if path == "" {
+			var err error
+			path, err = claude.FindClaudeCLI()
+			if err != nil {
+				c.JSON(http.StatusOK, gin.H{"path": "", "valid": false, "version": ""})
+				return
+			}
+		}
+		version, verr := claude.ValidateClaudeCLI(path)
+		c.JSON(http.StatusOK, gin.H{"path": path, "valid": verr == nil, "version": version})
 	})
 
 	r.POST("/claude/path", func(c *gin.Context) {
@@ -30,7 +40,9 @@ func registerClaudeRoutes(r *gin.RouterGroup, st *store.Store, br *bridge.Bridge
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"path": req.Path, "version": version})
+		cfg.ClaudeCLIPath = req.Path
+		cfg.Save()
+		c.JSON(http.StatusOK, gin.H{"path": req.Path, "version": version, "valid": true})
 	})
 
 	r.POST("/claude/auto-detect", func(c *gin.Context) {
@@ -40,7 +52,12 @@ func registerClaudeRoutes(r *gin.RouterGroup, st *store.Store, br *bridge.Bridge
 			return
 		}
 		version, err := claude.ValidateClaudeCLI(path)
-		c.JSON(http.StatusOK, gin.H{"path": path, "version": version, "valid": err == nil})
+		valid := err == nil
+		if valid {
+			cfg.ClaudeCLIPath = path
+			cfg.Save()
+		}
+		c.JSON(http.StatusOK, gin.H{"path": path, "version": version, "valid": valid})
 	})
 }
 

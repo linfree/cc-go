@@ -13,6 +13,10 @@ type UI interface {
 
 	// Quit triggers a programmatic exit.
 	Quit()
+
+	// ShowMessage displays a platform-native message dialog (e.g. MessageBox on
+	// Windows). On platforms without a native dialog, it falls back to logging.
+	ShowMessage(title, message string)
 }
 
 // New returns the platform-appropriate UI implementation.

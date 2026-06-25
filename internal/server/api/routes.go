@@ -13,7 +13,7 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, st *store.Store, br *brid
 	api := r.Group("/api/v1")
 	registerWechatRoutes(api, cfg, wc, br)
 	registerWechatBotRoutes(api, wc, br)
-	registerClaudeRoutes(api, st, br)
+	registerClaudeRoutes(api, cfg, st, br)
 	registerSessionRoutes(api, st, br)
 	registerPermissionRoutes(api, br)
 	registerPushRoutes(api, cfg)

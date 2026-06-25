@@ -31,6 +31,7 @@ interface AvailableSkill {
 interface Settings {
   language?: string
   web_port?: number
+  actual_port?: number
   auto_open_browser?: boolean
   auto_resume_latest?: boolean
   auto_find_claude?: boolean
@@ -269,6 +270,11 @@ export default function Settings() {
                       onChange={e => setSettings({ ...settings, web_port: parseInt(e.target.value) || 0 })}
                       className="w-full bg-surface-container-lowest border border-outline-variant rounded px-3 py-2 font-mono text-[13px] text-on-surface focus:outline-none focus:border-primary"
                     />
+                    {settings.actual_port && settings.actual_port !== settings.web_port && (
+                      <p className="mt-1 text-[12px] text-tertiary">
+                        实际监听端口: {settings.actual_port}（{settings.web_port} 被占用）
+                      </p>
+                    )}
                   </div>
                   <div className="min-w-0 flex-1">
                     <label className="block text-[13px] text-on-surface-variant mb-2">语言</label>
@@ -353,8 +359,9 @@ export default function Settings() {
                     <input
                       type="text"
                       value={claudeInfo?.path || ''}
-                      readOnly
-                      className="flex-1 bg-surface-container-lowest border border-outline-variant rounded px-3 py-2 font-mono text-[13px] text-on-surface-variant cursor-not-allowed opacity-70"
+                      onChange={e => setClaudeInfo(prev => prev ? { ...prev, path: e.target.value, valid: false, version: '' } : { path: e.target.value, valid: false, version: '' })}
+                      placeholder="输入或自动检测 Claude CLI 路径"
+                      className="flex-1 bg-surface-container-lowest border border-outline-variant rounded px-3 py-2 font-mono text-[13px] text-on-surface focus:outline-none focus:border-primary placeholder:text-on-surface-variant/40"
                     />
                     <button
                       onClick={handleAutoDetect}

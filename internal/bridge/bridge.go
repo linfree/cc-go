@@ -745,10 +745,19 @@ func (b *Bridge) readClaudeEvents(sess *claude.Session, logger *claude.SessionLo
 			})
 		}
 	}
-	// Session event stream ended — Claude process exited
+	// Session event stream ended — Claude process exited.
+	// Guard during session switch: if StartSession already replaced
+	// b.activeSess with a new session, this goroutine must not touch
+	// bridge state (it would kill the newly started session).
+	b.mu.Lock()
+	if b.activeSess != sess {
+		b.mu.Unlock()
+		return
+	}
 	sid := b.activeSessID
 	status := sess.Status
-	b.StopSession()
+	b.StopSessionLocked()
+	b.mu.Unlock()
 	if status == claude.StatusError {
 		b.sendWechatBudgetedSingle("Claude 会话异常退出")
 	} else {

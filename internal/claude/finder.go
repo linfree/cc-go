@@ -9,9 +9,13 @@ import (
 
 var commonPaths = map[string][]string{
 	"windows": {
+		filepath.Join(os.Getenv("USERPROFILE"), ".local", "bin", "claude.exe"),
 		filepath.Join(os.Getenv("LOCALAPPDATA"), "Programs", "Claude", "claude.exe"),
-		filepath.Join(os.Getenv("APPDATA"), "npm", "claude.cmd"),
 		filepath.Join(os.Getenv("ProgramFiles"), "Claude", "claude.exe"),
+		filepath.Join(os.Getenv("ProgramFiles(x86)"), "Claude", "claude.exe"),
+		filepath.Join(os.Getenv("APPDATA"), "npm", "claude.cmd"),
+		filepath.Join(os.Getenv("USERPROFILE"), "scoop", "shims", "claude.exe"),
+		filepath.Join(os.Getenv("USERPROFILE"), "AppData", "Local", "Microsoft", "WinGet", "Links", "claude.exe"),
 	},
 	"darwin": {
 		"/usr/local/bin/claude",

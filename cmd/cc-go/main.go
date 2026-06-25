@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"os/signal"
 	"syscall"
@@ -108,6 +109,13 @@ func main() {
 		}
 	}
 
+	ln, port := listenWithFallback(cfg.WebPort)
+	if port != cfg.WebPort {
+		log.Printf("port %d was in use, falling back to port %d", cfg.WebPort, port)
+	}
+	cfg.ActualPort = port
+	defer ln.Close()
+
 	srv := server.New(cfg, st, br, wc)
 
 	RegisterStaticRoutes(srv.Router())
@@ -125,14 +133,17 @@ func main() {
 		os.Exit(0)
 	}()
 
-	appUI := ui.New(cfg.WebPort, appIcon)
+	appUI := ui.New(port, appIcon)
 
 	// onReady: start HTTP server after UI is set up
 	appUI.Run(func() {
-		addr := fmt.Sprintf(":%d", cfg.WebPort)
-		log.Printf("cc-go server starting on %s", addr)
+		if port != cfg.WebPort {
+			appUI.ShowMessage("cc-go",
+				fmt.Sprintf("端口 %d 已被占用，自动切换到端口 %d", cfg.WebPort, port))
+		}
+		log.Printf("cc-go server starting on :%d", port)
 		go func() {
-			if err := srv.Router().Run(addr); err != nil {
+			if err := srv.Router().RunListener(ln); err != nil {
 				log.Printf("server error: %v", err)
 			}
 		}()
@@ -152,4 +163,23 @@ func main() {
 	case <-done:
 	case <-time.After(8 * time.Second):
 	}
+}
+
+func listenWithFallback(start int) (net.Listener, int) {
+	// Try configured port and a few fallbacks
+	for port := start; port < start+10; port++ {
+		addr := fmt.Sprintf(":%d", port)
+		ln, err := net.Listen("tcp", addr)
+		if err == nil {
+			return ln, port
+		}
+	}
+	// Ultimate fallback: let the OS assign a free port (always works).
+	ln, err := net.Listen("tcp", ":0")
+	if err != nil {
+		log.Fatalf("listen: %v", err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	log.Printf("all ports %d-%d were in use, using OS-assigned port %d", start, start+9, port)
+	return ln, port
 }

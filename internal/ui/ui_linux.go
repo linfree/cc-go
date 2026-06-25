@@ -32,6 +32,10 @@ func (u *linuxUI) Run(onReady func()) {
 	<-u.quitC
 }
 
+func (u *linuxUI) ShowMessage(title, message string) {
+	log.Printf("[%s] %s", title, message)
+}
+
 func (u *linuxUI) Quit() {
 	select {
 	case u.quitC <- struct{}{}:

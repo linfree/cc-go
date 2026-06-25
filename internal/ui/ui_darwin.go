@@ -4,6 +4,7 @@ package ui
 
 import (
 	"fmt"
+	"log"
 	"os/exec"
 
 	"github.com/getlantern/systray"
@@ -57,6 +58,10 @@ func (u *otherUI) Run(onReady func()) {
 	}, func() {
 		// onExit — nothing extra needed
 	})
+}
+
+func (u *otherUI) ShowMessage(title, message string) {
+	log.Printf("[%s] %s", title, message)
 }
 
 func (u *otherUI) Quit() {
